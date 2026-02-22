@@ -262,7 +262,19 @@ jobs:
             "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe"
           mkdir -p work/nsis_extract
           7z x work/gpac.exe -owork/nsis_extract -y > /dev/null 2>&1
-          MP4BOX=$(find work/nsis_extract -name "MP4Box.exe" -type f | head -1)
+
+          # Debug: list extracted contents to understand NSIS directory structure
+          echo "--- NSIS extracted contents (exe files) ---"
+          find work/nsis_extract -iname "*.exe" -type f 2>/dev/null || true
+          echo "---"
+
+          # Case-insensitive search — NSIS may use $INSTDIR/ prefix
+          MP4BOX=$(find work/nsis_extract -iname "MP4Box.exe" -type f | head -1)
+          # Fallback: search for mp4box without extension match
+          if [ -z "$MP4BOX" ]; then
+            MP4BOX=$(find work/nsis_extract -iname "mp4box*" -type f | head -1)
+          fi
+
           if [ -n "$MP4BOX" ]; then
             mkdir -p work/pkg
             cp "$MP4BOX" work/pkg/MP4Box.exe
@@ -270,6 +282,8 @@ jobs:
             echo "✓ mp4box-windows-x86_64.zip"
           else
             echo "⚠ MP4Box.exe not found in NSIS installer"
+            echo "--- Full directory listing ---"
+            find work/nsis_extract -type f | head -50
           fi
           rm -rf work/nsis_extract work/pkg work/gpac.exe
 
@@ -286,14 +300,44 @@ jobs:
           bsdtar -xf work/gpac.pkg -C work/pkg_extract 2>/dev/null || \
             7z x work/gpac.pkg -owork/pkg_extract -y > /dev/null 2>&1
 
-          # Extract Payload files (gzip-compressed cpio archives)
+          # Debug: show extracted pkg structure
+          echo "--- .pkg extracted structure ---"
+          find work/pkg_extract -type f | head -30
+          echo "---"
+
+          # Extract Payload files — try multiple decompression methods
+          # Payloads can be: gzip, bzip2, xz, zstd, or plain cpio
           mkdir -p work/pkg_contents
-          find work/pkg_extract -name "Payload" -type f | while IFS= read -r payload; do
-            (cd work/pkg_contents && gunzip -c "$payload" | cpio -id 2>/dev/null) || \
-            (cd work/pkg_contents && cpio -id < "$payload" 2>/dev/null) || true
+          for payload in $(find work/pkg_extract -name "Payload" -type f); do
+            echo "Processing payload: $payload ($(file "$payload" | cut -d: -f2))"
+            (cd work/pkg_contents && gunzip -c "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd work/pkg_contents && bzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd work/pkg_contents && xzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd work/pkg_contents && zstdcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd work/pkg_contents && cpio -id < "$payload" 2>/dev/null) || \
+            echo "⚠ Could not decompress payload: $payload"
           done
 
+          # Also try extracting any .pkg subdirectories with 7z (handles nested pkgs)
+          for subpkg in $(find work/pkg_extract -name "*.pkg" -type d); do
+            if [ -f "$subpkg/Payload" ]; then
+              echo "Already handled as directory payload"
+            else
+              # Try 7z on the subpkg directory
+              7z x "$subpkg" -owork/pkg_contents -y > /dev/null 2>&1 || true
+            fi
+          done
+
+          echo "--- Extracted contents ---"
+          find work/pkg_contents -type f | head -30
+          echo "---"
+
           MP4BOX=$(find work/pkg_contents -name "MP4Box" -type f | head -1)
+          # Also check case-insensitively
+          if [ -z "$MP4BOX" ]; then
+            MP4BOX=$(find work/pkg_contents -iname "mp4box" -type f | head -1)
+          fi
+
           if [ -n "$MP4BOX" ]; then
             mkdir -p work/pkg
             cp "$MP4BOX" work/pkg/MP4Box
@@ -315,6 +359,8 @@ jobs:
             echo "✓ mp4box-macos-aarch64.tar.gz (Rosetta 2)"
           else
             echo "⚠ MP4Box binary not found in .pkg"
+            echo "--- Full pkg_contents listing ---"
+            find work/pkg_contents -type f | head -50
           fi
           rm -rf work/pkg_extract work/pkg_contents work/pkg work/gpac.pkg
 
