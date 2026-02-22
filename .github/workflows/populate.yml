@@ -3,24 +3,31 @@
 #
 # Populate Tools Workflow
 # =======================
-# Downloads external tool binaries from upstream sources, repackages them
-# with standardized naming, and uploads to the "latest" GitHub Release.
+# Downloads external tool binaries from upstream sources, builds Python tools
+# via PyInstaller, repackages everything with standardized naming, and uploads
+# to the "latest" GitHub Release.
 #
 # Asset naming convention: {tool_id}-{os}-{arch}.{ext}
 #   os:   linux, windows, macos
-#   arch: x86_64, aarch64
+#   arch: x86_64, x86, aarch64, armhf
 #   ext:  .tar.gz (Linux/macOS), .zip (Windows)
 #
 # Triggers:
-#   - Manual (workflow_dispatch) — run on demand
-#   - Monthly schedule — keeps tools up to date
+#   - Push to main branch
+#   - Pull request with 'update-tools' label
+#   - Monthly schedule (1st at 06:00 UTC)
+#   - Manual (workflow_dispatch)
 
 name: Populate Tools
 
 on:
-  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    types: [labeled, synchronize]
   schedule:
-    - cron: "0 6 1 * *" # Monthly on the 1st at 06:00 UTC
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,8 +36,15 @@ env:
   BENTO4_VERSION: "1-6-0-641"
 
 jobs:
-  populate:
+  # =====================================================================
+  # Job 1: Download pre-built binary tools
+  # Downloads and repackages all tools that provide pre-built binaries
+  # =====================================================================
+  download-binaries:
     runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'update-tools')
     steps:
       - uses: actions/checkout@v4
 
@@ -96,12 +110,82 @@ jobs:
           mkdir -p work/extract && unzip -q work/ffmpeg.zip -d work/extract
           BIN=$(find work/extract -name "ffmpeg" -type f | head -1)
           mkdir -p work/pkg && cp "$BIN" work/pkg/ffmpeg && chmod +x work/pkg/ffmpeg
-          tar -czf staging/ffmpeg-macos-x86_64.tar.gz -C work/pkg ffmpeg
-          # aarch64 uses the same x86_64 binary via Rosetta 2
-          cp staging/ffmpeg-macos-x86_64.tar.gz staging/ffmpeg-macos-aarch64.tar.gz
+          tar -czf staging/ffmpeg-macos-aarch64.tar.gz -C work/pkg ffmpeg
           rm -rf work/extract work/pkg work/ffmpeg.zip
-          echo "✓ ffmpeg-macos-x86_64.tar.gz"
-          echo "✓ ffmpeg-macos-aarch64.tar.gz (Rosetta 2)"
+          echo "✓ ffmpeg-macos-aarch64.tar.gz"
+
+      # =============================================================
+      # yt-dlp
+      # Source: yt-dlp/yt-dlp GitHub releases
+      # =============================================================
+
+      - name: "yt-dlp: Fetch latest release tag"
+        id: ytdlp_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api repos/yt-dlp/yt-dlp/releases/latest --jq '.tag_name')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "→ yt-dlp latest: $TAG"
+
+      - name: "yt-dlp: Linux x86_64"
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ytdlp_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp_linux"
+          chmod +x work/yt-dlp
+          mkdir -p work/pkg && mv work/yt-dlp work/pkg/yt-dlp
+          tar -czf staging/yt-dlp-linux-x86_64.tar.gz -C work/pkg yt-dlp
+          rm -rf work/pkg
+          echo "✓ yt-dlp-linux-x86_64.tar.gz"
+
+      - name: "yt-dlp: Linux aarch64"
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ytdlp_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp_linux_aarch64"
+          chmod +x work/yt-dlp
+          mkdir -p work/pkg && mv work/yt-dlp work/pkg/yt-dlp
+          tar -czf staging/yt-dlp-linux-aarch64.tar.gz -C work/pkg yt-dlp
+          rm -rf work/pkg
+          echo "✓ yt-dlp-linux-aarch64.tar.gz"
+
+      - name: "yt-dlp: Windows x86_64"
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ytdlp_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/yt-dlp.exe \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp.exe"
+          mkdir -p work/pkg && mv work/yt-dlp.exe work/pkg/yt-dlp.exe
+          (cd work/pkg && zip -q ../../staging/yt-dlp-windows-x86_64.zip yt-dlp.exe)
+          rm -rf work/pkg
+          echo "✓ yt-dlp-windows-x86_64.zip"
+
+      - name: "yt-dlp: Windows ARM64"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ytdlp_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/yt-dlp.exe \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp_arm64.exe"
+          mkdir -p work/pkg && mv work/yt-dlp.exe work/pkg/yt-dlp.exe
+          (cd work/pkg && zip -q ../../staging/yt-dlp-windows-aarch64.zip yt-dlp.exe)
+          rm -rf work/pkg
+          echo "✓ yt-dlp-windows-aarch64.zip"
+
+      - name: "yt-dlp: macOS"
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ytdlp_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/yt-dlp \
+            "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp_macos"
+          chmod +x work/yt-dlp
+          mkdir -p work/pkg && mv work/yt-dlp work/pkg/yt-dlp
+          tar -czf staging/yt-dlp-macos-aarch64.tar.gz -C work/pkg yt-dlp
+          rm -rf work/pkg
+          echo "✓ yt-dlp-macos-aarch64.tar.gz"
 
       # =============================================================
       # mp4decrypt (Bento4 SDK)
@@ -117,12 +201,9 @@ jobs:
           mkdir -p work/extract && unzip -q work/bento4.zip -d work/extract
           BIN=$(find work/extract -name "mp4decrypt" -type f | head -1)
           mkdir -p work/pkg && cp "$BIN" work/pkg/mp4decrypt && chmod +x work/pkg/mp4decrypt
-          tar -czf staging/mp4decrypt-macos-x86_64.tar.gz -C work/pkg mp4decrypt
-          # Universal binary works natively on both architectures
-          cp staging/mp4decrypt-macos-x86_64.tar.gz staging/mp4decrypt-macos-aarch64.tar.gz
+          tar -czf staging/mp4decrypt-macos-aarch64.tar.gz -C work/pkg mp4decrypt
           rm -rf work/extract work/pkg work/bento4.zip
-          echo "✓ mp4decrypt-macos-x86_64.tar.gz"
-          echo "✓ mp4decrypt-macos-aarch64.tar.gz (universal)"
+          echo "✓ mp4decrypt-macos-aarch64.tar.gz"
 
       - name: "mp4decrypt: Linux x86_64"
         run: |
@@ -161,7 +242,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh api repos/nilaoda/N_m3u8DL-RE/releases/latest > work/nm3u8dlre_release.json
-          echo "tag=$(jq -r '.tag_name' work/nm3u8dlre_release.json)" >> "$GITHUB_OUTPUT"
+          TAG=$(jq -r '.tag_name' work/nm3u8dlre_release.json)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "→ N_m3u8DL-RE latest: $TAG"
 
       - name: "N_m3u8DL-RE: All platforms"
         env:
@@ -171,29 +254,23 @@ jobs:
 
           package_nm3u8dlre() {
             local rid="$1" output_name="$2" binary_name="${3:-N_m3u8DL-RE}"
-
-            # Find the asset URL containing this Runtime ID
             local asset_url
             asset_url=$(jq -r ".assets[] | select(.name | contains(\"${rid}\")) | .browser_download_url" \
               work/nm3u8dlre_release.json | head -1)
-
             if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
               echo "⚠ No asset found for RID: $rid — skipping $output_name"
               return 0
             fi
-
             local asset_name
             asset_name=$(basename "$asset_url")
             echo "→ Downloading $output_name ($asset_name)"
             curl -fL --retry 3 -o "work/$asset_name" "$asset_url" || { echo "⚠ Download failed for $output_name"; return 0; }
-
             mkdir -p work/extract
             case "$asset_name" in
               *.tar.gz) tar -xzf "work/$asset_name" -C work/extract ;;
               *.zip)    unzip -q "work/$asset_name" -d work/extract ;;
               *)        echo "⚠ Unknown archive format: $asset_name"; rm -rf work/extract; return 0 ;;
             esac
-
             local bin
             bin=$(find work/extract -name "$binary_name" -o -name "${binary_name}.exe" | head -1)
             if [ -z "$bin" ]; then
@@ -201,18 +278,14 @@ jobs:
               rm -rf work/extract "work/$asset_name"
               return 0
             fi
-
             local actual_name
             actual_name=$(basename "$bin")
             mkdir -p work/pkg
-            cp "$bin" "work/pkg/$actual_name"
-            chmod +x "work/pkg/$actual_name"
-
+            cp "$bin" "work/pkg/$actual_name" && chmod +x "work/pkg/$actual_name"
             case "$output_name" in
               *.tar.gz) tar -czf "staging/$output_name" -C work/pkg "$actual_name" ;;
               *.zip)    (cd work/pkg && zip -q "../../staging/$output_name" "$actual_name") ;;
             esac
-
             rm -rf work/extract work/pkg "work/$asset_name"
             echo "✓ $output_name"
           }
@@ -244,8 +317,7 @@ jobs:
           MP4BOX=$(find work/deb_contents -name "MP4Box" -type f | head -1)
           if [ -n "$MP4BOX" ]; then
             mkdir -p work/pkg
-            cp "$MP4BOX" work/pkg/MP4Box
-            chmod +x work/pkg/MP4Box
+            cp "$MP4BOX" work/pkg/MP4Box && chmod +x work/pkg/MP4Box
             tar -czf staging/mp4box-linux-x86_64.tar.gz -C work/pkg MP4Box
             echo "✓ mp4box-linux-x86_64.tar.gz"
           else
@@ -262,19 +334,10 @@ jobs:
             "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe"
           mkdir -p work/nsis_extract
           7z x work/gpac.exe -owork/nsis_extract -y > /dev/null 2>&1
-
-          # Debug: list extracted contents to understand NSIS directory structure
-          echo "--- NSIS extracted contents (exe files) ---"
-          find work/nsis_extract -iname "*.exe" -type f 2>/dev/null | head -20 || true
-          echo "---"
-
-          # Case-insensitive search — NSIS may use $INSTDIR/ prefix
           MP4BOX=$(find work/nsis_extract -iname "MP4Box.exe" -type f | head -1)
-          # Fallback: search for mp4box without extension match
           if [ -z "$MP4BOX" ]; then
             MP4BOX=$(find work/nsis_extract -iname "mp4box*" -type f | head -1)
           fi
-
           if [ -n "$MP4BOX" ]; then
             mkdir -p work/pkg
             cp "$MP4BOX" work/pkg/MP4Box.exe
@@ -282,8 +345,6 @@ jobs:
             echo "✓ mp4box-windows-x86_64.zip"
           else
             echo "⚠ MP4Box.exe not found in NSIS installer"
-            echo "--- Full directory listing ---"
-            find work/nsis_extract -type f 2>/dev/null | head -50 || true
           fi
           rm -rf work/nsis_extract work/pkg work/gpac.exe
 
@@ -294,48 +355,22 @@ jobs:
           echo "→ Downloading MP4Box macOS"
           curl -fL --retry 3 -o work/gpac.pkg \
             "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg"
-
-          # Extract .pkg (XAR archive) using bsdtar, fallback to 7z
           mkdir -p work/pkg_extract
           bsdtar -xf work/gpac.pkg -C work/pkg_extract 2>/dev/null || \
             7z x work/gpac.pkg -owork/pkg_extract -y > /dev/null 2>&1
-
-          # Debug: show extracted pkg structure
-          echo "--- .pkg extracted structure ---"
-          find work/pkg_extract -type f 2>/dev/null | head -30 || true
-          echo "---"
-
-          # Extract Payload files — try multiple decompression methods
-          # Payloads can be: gzip, bzip2, xz, zstd, or plain cpio
-          # NOTE: Must use absolute paths since we cd into pkg_contents
           mkdir -p work/pkg_contents
           ABS_PKG_CONTENTS="$(pwd)/work/pkg_contents"
           for payload in $(find "$(pwd)/work/pkg_extract" -name "Payload" -type f); do
-            echo "Processing payload: $payload ($(file "$payload" | cut -d: -f2))"
             (cd "$ABS_PKG_CONTENTS" && gunzip -c "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
             (cd "$ABS_PKG_CONTENTS" && bzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
             (cd "$ABS_PKG_CONTENTS" && xzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
             (cd "$ABS_PKG_CONTENTS" && zstdcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
-            (cd "$ABS_PKG_CONTENTS" && cpio -id < "$payload" 2>/dev/null) || \
-            echo "⚠ Could not decompress payload: $payload"
+            (cd "$ABS_PKG_CONTENTS" && cpio -id < "$payload" 2>/dev/null) || true
           done
-
-          echo "--- Extracted contents ---"
-          find work/pkg_contents -type f 2>/dev/null | head -30 || true
-          echo "---"
-
-          MP4BOX=$(find work/pkg_contents -name "MP4Box" -type f | head -1)
-          # Also check case-insensitively
-          if [ -z "$MP4BOX" ]; then
-            MP4BOX=$(find work/pkg_contents -iname "mp4box" -type f | head -1)
-          fi
-
+          MP4BOX=$(find work/pkg_contents -iname "MP4Box" -type f | head -1)
           if [ -n "$MP4BOX" ]; then
             mkdir -p work/pkg
-            cp "$MP4BOX" work/pkg/MP4Box
-            chmod +x work/pkg/MP4Box
-
-            # Include lib/ directory if present (needed for macOS dynamic linking)
+            cp "$MP4BOX" work/pkg/MP4Box && chmod +x work/pkg/MP4Box
             MP4BOX_PARENT=$(dirname "$MP4BOX")
             for libdir in "${MP4BOX_PARENT}/lib" "${MP4BOX_PARENT}/../lib"; do
               if [ -d "$libdir" ]; then
@@ -343,28 +378,465 @@ jobs:
                 break
               fi
             done
-
-            tar -czf staging/mp4box-macos-x86_64.tar.gz -C work/pkg .
-            # aarch64 uses the same x86_64 binary via Rosetta 2
-            cp staging/mp4box-macos-x86_64.tar.gz staging/mp4box-macos-aarch64.tar.gz
-            echo "✓ mp4box-macos-x86_64.tar.gz"
-            echo "✓ mp4box-macos-aarch64.tar.gz (Rosetta 2)"
+            tar -czf staging/mp4box-macos-aarch64.tar.gz -C work/pkg .
+            echo "✓ mp4box-macos-aarch64.tar.gz"
           else
             echo "⚠ MP4Box binary not found in .pkg"
-            echo "--- Full pkg_contents listing ---"
-            find work/pkg_contents -type f 2>/dev/null | head -50 || true
           fi
           rm -rf work/pkg_extract work/pkg_contents work/pkg work/gpac.pkg
 
       # =============================================================
-      # Upload to "latest" Release
+      # aria2c
+      # Source: aria2/aria2 releases (Windows only pre-built)
+      # Linux: compiled from source
+      # =============================================================
+
+      - name: "aria2c: Fetch latest release"
+        id: aria2_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api repos/aria2/aria2/releases/latest --jq '.tag_name')
+          VER=$(echo "$TAG" | sed 's/release-//')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "→ aria2 latest: $TAG (version $VER)"
+
+      - name: "aria2c: Windows x86_64"
+        run: |
+          set -euo pipefail
+          VER="${{ steps.aria2_meta.outputs.version }}"
+          TAG="${{ steps.aria2_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/aria2.zip \
+            "https://github.com/aria2/aria2/releases/download/${TAG}/aria2-${VER}-win-64bit-build1.zip"
+          mkdir -p work/extract && unzip -q work/aria2.zip -d work/extract
+          BIN=$(find work/extract -name "aria2c.exe" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/aria2c.exe
+          (cd work/pkg && zip -q ../../staging/aria2c-windows-x86_64.zip aria2c.exe)
+          rm -rf work/extract work/pkg work/aria2.zip
+          echo "✓ aria2c-windows-x86_64.zip"
+
+      - name: "aria2c: Linux x86_64 (compile from source)"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VER="${{ steps.aria2_meta.outputs.version }}"
+          TAG="${{ steps.aria2_meta.outputs.tag }}"
+          echo "→ Building aria2c ${VER} from source"
+          sudo apt-get install -y libssl-dev libssh2-1-dev pkg-config \
+            autoconf automake libtool zlib1g-dev libsqlite3-dev libc-ares-dev
+          curl -fL --retry 3 -o work/aria2-src.tar.gz \
+            "https://github.com/aria2/aria2/releases/download/${TAG}/aria2-${VER}.tar.gz"
+          mkdir -p work/aria2-build
+          tar -xzf work/aria2-src.tar.gz -C work/aria2-build --strip-components=1
+          cd work/aria2-build
+          autoreconf -i 2>/dev/null || true
+          ./configure --without-gnutls --with-openssl --without-libxml2 \
+            --without-libexpat --disable-nls --disable-bittorrent
+          make -j"$(nproc)"
+          strip src/aria2c
+          cd ../..
+          mkdir -p work/pkg && cp work/aria2-build/src/aria2c work/pkg/aria2c
+          chmod +x work/pkg/aria2c
+          tar -czf staging/aria2c-linux-x86_64.tar.gz -C work/pkg aria2c
+          rm -rf work/aria2-build work/pkg work/aria2-src.tar.gz
+          echo "✓ aria2c-linux-x86_64.tar.gz"
+
+      # =============================================================
+      # fpcalc (Chromaprint)
+      # Source: acoustid/chromaprint releases
+      # =============================================================
+
+      - name: "fpcalc: Fetch latest release"
+        id: fpcalc_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api repos/acoustid/chromaprint/releases/latest --jq '.tag_name')
+          VER=$(echo "$TAG" | sed 's/^v//')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "→ chromaprint/fpcalc latest: $TAG"
+
+      - name: "fpcalc: Linux x86_64"
+        run: |
+          set -euo pipefail
+          VER="${{ steps.fpcalc_meta.outputs.version }}"
+          TAG="${{ steps.fpcalc_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/fpcalc.tar.gz \
+            "https://github.com/acoustid/chromaprint/releases/download/${TAG}/chromaprint-fpcalc-${VER}-linux-x86_64.tar.gz"
+          mkdir -p work/extract && tar -xzf work/fpcalc.tar.gz -C work/extract
+          BIN=$(find work/extract -name "fpcalc" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/fpcalc && chmod +x work/pkg/fpcalc
+          tar -czf staging/fpcalc-linux-x86_64.tar.gz -C work/pkg fpcalc
+          rm -rf work/extract work/pkg work/fpcalc.tar.gz
+          echo "✓ fpcalc-linux-x86_64.tar.gz"
+
+      - name: "fpcalc: Linux aarch64"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VER="${{ steps.fpcalc_meta.outputs.version }}"
+          TAG="${{ steps.fpcalc_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/fpcalc.tar.gz \
+            "https://github.com/acoustid/chromaprint/releases/download/${TAG}/chromaprint-fpcalc-${VER}-linux-arm64.tar.gz"
+          mkdir -p work/extract && tar -xzf work/fpcalc.tar.gz -C work/extract
+          BIN=$(find work/extract -name "fpcalc" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/fpcalc && chmod +x work/pkg/fpcalc
+          tar -czf staging/fpcalc-linux-aarch64.tar.gz -C work/pkg fpcalc
+          rm -rf work/extract work/pkg work/fpcalc.tar.gz
+          echo "✓ fpcalc-linux-aarch64.tar.gz"
+
+      - name: "fpcalc: Windows x86_64"
+        run: |
+          set -euo pipefail
+          VER="${{ steps.fpcalc_meta.outputs.version }}"
+          TAG="${{ steps.fpcalc_meta.outputs.tag }}"
+          curl -fL --retry 3 -o work/fpcalc.zip \
+            "https://github.com/acoustid/chromaprint/releases/download/${TAG}/chromaprint-fpcalc-${VER}-windows-x86_64.zip"
+          mkdir -p work/extract && unzip -q work/fpcalc.zip -d work/extract
+          BIN=$(find work/extract -name "fpcalc.exe" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/fpcalc.exe
+          (cd work/pkg && zip -q ../../staging/fpcalc-windows-x86_64.zip fpcalc.exe)
+          rm -rf work/extract work/pkg work/fpcalc.zip
+          echo "✓ fpcalc-windows-x86_64.zip"
+
+      - name: "fpcalc: macOS"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VER="${{ steps.fpcalc_meta.outputs.version }}"
+          TAG="${{ steps.fpcalc_meta.outputs.tag }}"
+          # Try arm64, fall back to universal
+          curl -fL --retry 3 -o work/fpcalc.tar.gz \
+            "https://github.com/acoustid/chromaprint/releases/download/${TAG}/chromaprint-fpcalc-${VER}-macos-arm64.tar.gz" || \
+          curl -fL --retry 3 -o work/fpcalc.tar.gz \
+            "https://github.com/acoustid/chromaprint/releases/download/${TAG}/chromaprint-fpcalc-${VER}-macos-universal.tar.gz"
+          mkdir -p work/extract && tar -xzf work/fpcalc.tar.gz -C work/extract
+          BIN=$(find work/extract -name "fpcalc" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/fpcalc && chmod +x work/pkg/fpcalc
+          tar -czf staging/fpcalc-macos-aarch64.tar.gz -C work/pkg fpcalc
+          rm -rf work/extract work/pkg work/fpcalc.tar.gz
+          echo "✓ fpcalc-macos-aarch64.tar.gz"
+
+      # =============================================================
+      # AMdecrypt
+      # Source: glomatico/amdecrypt releases (Go binary)
+      # =============================================================
+
+      - name: "AMdecrypt: Fetch latest release"
+        id: amdecrypt_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/glomatico/amdecrypt/releases/latest > work/amdecrypt_release.json
+          TAG=$(jq -r '.tag_name' work/amdecrypt_release.json)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "→ amdecrypt latest: $TAG"
+
+      - name: "AMdecrypt: All platforms"
+        run: |
+          set -euo pipefail
+
+          package_amdecrypt() {
+            local go_os="$1" go_arch="$2" output_name="$3"
+            local asset_url
+            asset_url=$(jq -r ".assets[] | select(.name | contains(\"${go_os}_${go_arch}\")) | .browser_download_url" \
+              work/amdecrypt_release.json | head -1)
+            if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
+              echo "⚠ No asset for ${go_os}_${go_arch} — skipping"
+              return 0
+            fi
+            local asset_name
+            asset_name=$(basename "$asset_url")
+            echo "→ Downloading $output_name"
+            curl -fL --retry 3 -o "work/$asset_name" "$asset_url" || { echo "⚠ Download failed"; return 0; }
+            mkdir -p work/extract && tar -xzf "work/$asset_name" -C work/extract
+            local bin
+            bin=$(find work/extract -name "amdecrypt" -o -name "amdecrypt.exe" | head -1)
+            if [ -z "$bin" ]; then
+              rm -rf work/extract "work/$asset_name"
+              echo "⚠ Binary not found"
+              return 0
+            fi
+            local actual_name
+            actual_name=$(basename "$bin")
+            mkdir -p work/pkg && cp "$bin" "work/pkg/$actual_name" && chmod +x "work/pkg/$actual_name"
+            case "$output_name" in
+              *.tar.gz) tar -czf "staging/$output_name" -C work/pkg "$actual_name" ;;
+              *.zip)    (cd work/pkg && zip -q "../../staging/$output_name" "$actual_name") ;;
+            esac
+            rm -rf work/extract work/pkg "work/$asset_name"
+            echo "✓ $output_name"
+          }
+
+          package_amdecrypt "linux"   "amd64" "amdecrypt-linux-x86_64.tar.gz"
+          package_amdecrypt "linux"   "arm64" "amdecrypt-linux-aarch64.tar.gz"
+          package_amdecrypt "linux"   "386"   "amdecrypt-linux-x86.tar.gz"
+          package_amdecrypt "windows" "amd64" "amdecrypt-windows-x86_64.zip"
+          package_amdecrypt "windows" "arm64" "amdecrypt-windows-aarch64.zip"
+          package_amdecrypt "darwin"  "arm64" "amdecrypt-macos-aarch64.tar.gz"
+
+      # =============================================================
+      # Wrapper (Linux only)
+      # Source: WorldObservationLog/wrapper releases
+      # =============================================================
+
+      - name: "Wrapper: Fetch latest release"
+        id: wrapper_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/WorldObservationLog/wrapper/releases > work/wrapper_releases.json
+          # Get the most recent release (first in the array)
+          TAG=$(jq -r '.[0].tag_name' work/wrapper_releases.json)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "→ wrapper latest: $TAG"
+
+      - name: "Wrapper: Linux x86_64"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          ASSET_URL=$(jq -r '.[0].assets[0].browser_download_url' work/wrapper_releases.json)
+          if [ -z "$ASSET_URL" ] || [ "$ASSET_URL" = "null" ]; then
+            echo "⚠ No wrapper asset found — skipping"
+            exit 0
+          fi
+          echo "→ Downloading wrapper from $ASSET_URL"
+          curl -fL --retry 3 -o work/wrapper.zip "$ASSET_URL"
+          mkdir -p work/extract && unzip -q work/wrapper.zip -d work/extract
+          # Find the wrapper binary (may be named 'wrapper' or similar)
+          BIN=$(find work/extract -type f -executable 2>/dev/null | head -1)
+          if [ -z "$BIN" ]; then
+            BIN=$(find work/extract -type f ! -name "*.txt" ! -name "*.md" | head -1)
+          fi
+          if [ -n "$BIN" ]; then
+            mkdir -p work/pkg
+            cp "$BIN" work/pkg/wrapper && chmod +x work/pkg/wrapper
+            tar -czf staging/wrapper-linux-x86_64.tar.gz -C work/pkg wrapper
+            echo "✓ wrapper-linux-x86_64.tar.gz"
+          else
+            echo "⚠ No binary found in wrapper archive"
+          fi
+          rm -rf work/extract work/pkg work/wrapper.zip
+
+      # =============================================================
+      # get_iplayer
+      # Source: get-iplayer/get_iplayer (Perl script)
+      #         get-iplayer/get_iplayer_win32 (Windows installer)
+      # =============================================================
+
+      - name: "get_iplayer: Fetch latest release tags"
+        id: getiplayer_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SCRIPT_TAG=$(gh api repos/get-iplayer/get_iplayer/releases/latest --jq '.tag_name' 2>/dev/null || echo "v3.36")
+          echo "script_tag=$SCRIPT_TAG" >> "$GITHUB_OUTPUT"
+          WIN_TAG=$(gh api repos/get-iplayer/get_iplayer_win32/releases/latest --jq '.tag_name' 2>/dev/null || echo "3.36.0")
+          echo "win_tag=$WIN_TAG" >> "$GITHUB_OUTPUT"
+          echo "→ get_iplayer: script=$SCRIPT_TAG, win=$WIN_TAG"
+
+      - name: "get_iplayer: Perl script (Linux/macOS)"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.getiplayer_meta.outputs.script_tag }}"
+          echo "→ Downloading get_iplayer Perl script ($TAG)"
+          curl -fL --retry 3 -o work/get_iplayer \
+            "https://raw.githubusercontent.com/get-iplayer/get_iplayer/${TAG}/get_iplayer"
+          chmod +x work/get_iplayer
+          mkdir -p work/pkg && cp work/get_iplayer work/pkg/get_iplayer
+          # Single Perl script works on all Unix platforms
+          tar -czf staging/get_iplayer-linux-x86_64.tar.gz -C work/pkg get_iplayer
+          cp staging/get_iplayer-linux-x86_64.tar.gz staging/get_iplayer-linux-aarch64.tar.gz
+          cp staging/get_iplayer-linux-x86_64.tar.gz staging/get_iplayer-linux-armhf.tar.gz
+          cp staging/get_iplayer-linux-x86_64.tar.gz staging/get_iplayer-macos-aarch64.tar.gz
+          rm -rf work/pkg work/get_iplayer
+          echo "✓ get_iplayer Perl script (all Unix platforms)"
+
+      - name: "get_iplayer: Windows x86_64 installer"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          WIN_TAG="${{ steps.getiplayer_meta.outputs.win_tag }}"
+          echo "→ Downloading get_iplayer Windows installer ($WIN_TAG)"
+          curl -fL --retry 3 -o staging/get_iplayer-windows-x86_64-setup.exe \
+            "https://github.com/get-iplayer/get_iplayer_win32/releases/download/${WIN_TAG}/get_iplayer-${WIN_TAG}-windows-x64-setup.exe"
+          echo "✓ get_iplayer-windows-x86_64-setup.exe"
+
+      # =============================================================
+      # Upload artifact
       # =============================================================
 
       - name: List produced assets
         run: |
-          echo "=== Produced assets ==="
+          echo "=== Binary tools produced ==="
           ls -lh staging/
           echo "Total: $(ls staging/ | wc -l) assets"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-tools
+          path: staging/
+          retention-days: 1
+
+  # =====================================================================
+  # Job 2: Build Python tools via PyInstaller
+  # Matrix across platforms: Linux x86_64, Linux aarch64, Windows, macOS
+  # =====================================================================
+  build-python-tools:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'update-tools')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x86_64
+          - os: ubuntu-24.04-arm
+            platform: linux
+            arch: aarch64
+          - os: windows-latest
+            platform: windows
+            arch: x86_64
+          - os: macos-latest
+            platform: macos
+            arch: aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install packages and PyInstaller
+        run: |
+          pip install --upgrade pip
+          pip install pyinstaller votify gytmdl gamdl
+
+      - name: Build executables (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for tool in votify gytmdl gamdl; do
+            ENTRY=$(which "$tool" 2>/dev/null || true)
+            if [ -n "$ENTRY" ]; then
+              echo "→ Building $tool from $ENTRY"
+              pyinstaller --onefile --name "$tool" --distpath dist "$ENTRY" 2>&1 || {
+                echo "⚠ PyInstaller failed for $tool"
+                continue
+              }
+              if [ -f "dist/$tool" ]; then
+                chmod +x "dist/$tool"
+                mkdir -p pkg && cp "dist/$tool" "pkg/$tool"
+                tar -czf "staging/${tool}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz" -C pkg "$tool"
+                rm -rf pkg
+                echo "✓ ${tool}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+              fi
+            else
+              echo "⚠ $tool entry point not found in PATH"
+            fi
+            rm -rf build dist *.spec
+          done
+
+      - name: Build executables (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path staging | Out-Null
+          foreach ($tool in @("votify", "gytmdl", "gamdl")) {
+            $entry = (Get-Command $tool -ErrorAction SilentlyContinue).Source
+            if ($entry) {
+              Write-Host "→ Building $tool from $entry"
+              pyinstaller --onefile --name $tool --distpath dist $entry 2>&1
+              if (Test-Path "dist/$tool.exe") {
+                Compress-Archive -Path "dist/$tool.exe" -DestinationPath "staging/${tool}-${{ matrix.platform }}-${{ matrix.arch }}.zip" -Force
+                Write-Host "✓ ${tool}-${{ matrix.platform }}-${{ matrix.arch }}.zip"
+              } else {
+                Write-Host "⚠ PyInstaller output not found for $tool"
+              }
+            } else {
+              Write-Host "⚠ $tool entry point not found"
+            }
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist, *.spec
+          }
+
+      # Bonus: build aria2c from brew on macOS (no official pre-built binary)
+      - name: "aria2c: macOS (brew)"
+        if: matrix.platform == 'macos'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "→ Installing aria2c via Homebrew"
+          brew install aria2
+          ARIA2=$(which aria2c)
+          if [ -n "$ARIA2" ]; then
+            mkdir -p pkg && cp "$ARIA2" pkg/aria2c && chmod +x pkg/aria2c
+            tar -czf staging/aria2c-macos-aarch64.tar.gz -C pkg aria2c
+            rm -rf pkg
+            echo "✓ aria2c-macos-aarch64.tar.gz"
+          fi
+
+      - name: List produced assets
+        if: runner.os != 'Windows'
+        run: |
+          echo "=== Python tools (${{ matrix.platform }}-${{ matrix.arch }}) ==="
+          ls -lh staging/ 2>/dev/null || echo "No assets produced"
+
+      - name: List produced assets (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "=== Python tools (${{ matrix.platform }}-${{ matrix.arch }}) ==="
+          Get-ChildItem staging/ -ErrorAction SilentlyContinue | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-tools-${{ matrix.platform }}-${{ matrix.arch }}
+          path: staging/
+          retention-days: 1
+          if-no-files-found: warn
+
+  # =====================================================================
+  # Job 3: Upload all assets to the "latest" GitHub Release
+  # =====================================================================
+  upload-release:
+    needs: [download-binaries, build-python-tools]
+    runs-on: ubuntu-latest
+    # Only upload on push/schedule/dispatch (not PRs)
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      (needs.download-binaries.result == 'success' || needs.build-python-tools.result == 'success')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-assets
+
+      - name: Flatten assets into staging
+        run: |
+          mkdir -p staging
+          find all-assets -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.exe" \) \
+            -exec cp {} staging/ \;
+          echo "=== All assets ==="
+          ls -lh staging/
+          echo "Total: $(ls staging/ | wc -l) assets"
+
+      - name: Ensure 'latest' release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view latest --repo "${{ github.repository }}" > /dev/null 2>&1 || \
+          gh release create latest --repo "${{ github.repository }}" \
+            --title "Latest Tool Binaries" \
+            --notes "Auto-updated mirror of external tool binaries for MeedyaDL." \
+            --latest
 
       - name: Upload assets to release
         env:
@@ -375,7 +847,6 @@ jobs:
             echo "⚠ No assets produced — skipping upload"
             exit 1
           fi
-
           echo "→ Uploading $ASSET_COUNT assets to 'latest' release..."
           for file in staging/*; do
             name=$(basename "$file")

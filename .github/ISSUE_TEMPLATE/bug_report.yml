@@ -1,0 +1,81 @@
+name: Bug Report
+description: Report a problem with a mirrored tool binary or the populate workflow
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting an issue. Please fill out the details below.
+
+  - type: dropdown
+    id: tool
+    attributes:
+      label: Affected Tool
+      description: Which tool is affected?
+      options:
+        - FFmpeg
+        - yt-dlp
+        - mp4decrypt
+        - MP4Box
+        - N_m3u8DL-RE
+        - aria2c
+        - fpcalc
+        - get_iplayer
+        - Votify
+        - gytmdl
+        - gamdl
+        - AMdecrypt
+        - Wrapper
+        - Populate workflow
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Which platform are you using?
+      options:
+        - Linux x86_64
+        - Linux x86 (32-bit)
+        - Linux ARM64
+        - Linux armhf (Raspberry Pi)
+        - Windows x64
+        - Windows ARM64
+        - macOS ARM (Apple Silicon)
+        - macOS Intel
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Describe the bug in detail
+      placeholder: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Download the asset...
+        2. Extract it...
+        3. Run the binary...
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: Paste any relevant error messages or logs
+      render: shell
+    validations:
+      required: false

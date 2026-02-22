@@ -1,0 +1,33 @@
+# === Claude Code (local settings) ===
+.claude/settings.local.json
+.claude/memory/
+
+# === Build artifacts ===
+staging/
+work/
+
+# === OS files ===
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.swp
+*.swo
+*~
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# === Python build artifacts ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.spec
+
+# === Logs ===
+*.log
+npm-debug.log*
