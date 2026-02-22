@@ -1,0 +1,359 @@
+# Copyright (c) 2024-2026 MeedyaDL
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# Populate Tools Workflow
+# =======================
+# Downloads external tool binaries from upstream sources, repackages them
+# with standardized naming, and uploads to the "latest" GitHub Release.
+#
+# Asset naming convention: {tool_id}-{os}-{arch}.{ext}
+#   os:   linux, windows, macos
+#   arch: x86_64, aarch64
+#   ext:  .tar.gz (Linux/macOS), .zip (Windows)
+#
+# Triggers:
+#   - Manual (workflow_dispatch) — run on demand
+#   - Monthly schedule — keeps tools up to date
+
+name: Populate Tools
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 1 * *" # Monthly on the 1st at 06:00 UTC
+
+permissions:
+  contents: write
+
+env:
+  BENTO4_VERSION: "1-6-0-641"
+
+jobs:
+  populate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install extraction tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full libarchive-tools cpio
+
+      - name: Create staging directories
+        run: mkdir -p staging work
+
+      # =============================================================
+      # FFmpeg
+      # Source: BtbN/FFmpeg-Builds (Linux/Windows), evermeet.cx (macOS)
+      # =============================================================
+
+      - name: "FFmpeg: Linux x86_64"
+        run: |
+          set -euo pipefail
+          echo "→ Downloading FFmpeg Linux x86_64"
+          curl -fL --retry 3 -o work/ffmpeg.tar.xz \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz"
+          mkdir -p work/extract && tar -xf work/ffmpeg.tar.xz -C work/extract
+          BIN=$(find work/extract -name "ffmpeg" -type f -executable | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/ffmpeg && chmod +x work/pkg/ffmpeg
+          tar -czf staging/ffmpeg-linux-x86_64.tar.gz -C work/pkg ffmpeg
+          rm -rf work/extract work/pkg work/ffmpeg.tar.xz
+          echo "✓ ffmpeg-linux-x86_64.tar.gz"
+
+      - name: "FFmpeg: Linux aarch64"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "→ Downloading FFmpeg Linux aarch64"
+          curl -fL --retry 3 -o work/ffmpeg.tar.xz \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz"
+          mkdir -p work/extract && tar -xf work/ffmpeg.tar.xz -C work/extract
+          BIN=$(find work/extract -name "ffmpeg" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/ffmpeg && chmod +x work/pkg/ffmpeg
+          tar -czf staging/ffmpeg-linux-aarch64.tar.gz -C work/pkg ffmpeg
+          rm -rf work/extract work/pkg work/ffmpeg.tar.xz
+          echo "✓ ffmpeg-linux-aarch64.tar.gz"
+
+      - name: "FFmpeg: Windows x86_64"
+        run: |
+          set -euo pipefail
+          echo "→ Downloading FFmpeg Windows x86_64"
+          curl -fL --retry 3 -o work/ffmpeg.zip \
+            "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          mkdir -p work/extract && unzip -q work/ffmpeg.zip -d work/extract
+          BIN=$(find work/extract -name "ffmpeg.exe" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/ffmpeg.exe
+          (cd work/pkg && zip -q ../../staging/ffmpeg-windows-x86_64.zip ffmpeg.exe)
+          rm -rf work/extract work/pkg work/ffmpeg.zip
+          echo "✓ ffmpeg-windows-x86_64.zip"
+
+      - name: "FFmpeg: macOS"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "→ Downloading FFmpeg macOS (evermeet.cx)"
+          curl -fL --retry 3 -o work/ffmpeg.zip "https://evermeet.cx/ffmpeg/getrelease/zip"
+          mkdir -p work/extract && unzip -q work/ffmpeg.zip -d work/extract
+          BIN=$(find work/extract -name "ffmpeg" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/ffmpeg && chmod +x work/pkg/ffmpeg
+          tar -czf staging/ffmpeg-macos-x86_64.tar.gz -C work/pkg ffmpeg
+          # aarch64 uses the same x86_64 binary via Rosetta 2
+          cp staging/ffmpeg-macos-x86_64.tar.gz staging/ffmpeg-macos-aarch64.tar.gz
+          rm -rf work/extract work/pkg work/ffmpeg.zip
+          echo "✓ ffmpeg-macos-x86_64.tar.gz"
+          echo "✓ ffmpeg-macos-aarch64.tar.gz (Rosetta 2)"
+
+      # =============================================================
+      # mp4decrypt (Bento4 SDK)
+      # Source: bok.net/Bento4/binaries/
+      # =============================================================
+
+      - name: "mp4decrypt: macOS (universal)"
+        run: |
+          set -euo pipefail
+          URL="https://www.bok.net/Bento4/binaries/Bento4-SDK-${{ env.BENTO4_VERSION }}.universal-apple-macosx.zip"
+          echo "→ Downloading mp4decrypt macOS from $URL"
+          curl -fL --retry 3 -o work/bento4.zip "$URL"
+          mkdir -p work/extract && unzip -q work/bento4.zip -d work/extract
+          BIN=$(find work/extract -name "mp4decrypt" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mp4decrypt && chmod +x work/pkg/mp4decrypt
+          tar -czf staging/mp4decrypt-macos-x86_64.tar.gz -C work/pkg mp4decrypt
+          # Universal binary works natively on both architectures
+          cp staging/mp4decrypt-macos-x86_64.tar.gz staging/mp4decrypt-macos-aarch64.tar.gz
+          rm -rf work/extract work/pkg work/bento4.zip
+          echo "✓ mp4decrypt-macos-x86_64.tar.gz"
+          echo "✓ mp4decrypt-macos-aarch64.tar.gz (universal)"
+
+      - name: "mp4decrypt: Linux x86_64"
+        run: |
+          set -euo pipefail
+          URL="https://www.bok.net/Bento4/binaries/Bento4-SDK-${{ env.BENTO4_VERSION }}.x86_64-unknown-linux.zip"
+          echo "→ Downloading mp4decrypt Linux x86_64 from $URL"
+          curl -fL --retry 3 -o work/bento4.zip "$URL"
+          mkdir -p work/extract && unzip -q work/bento4.zip -d work/extract
+          BIN=$(find work/extract -name "mp4decrypt" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mp4decrypt && chmod +x work/pkg/mp4decrypt
+          tar -czf staging/mp4decrypt-linux-x86_64.tar.gz -C work/pkg mp4decrypt
+          rm -rf work/extract work/pkg work/bento4.zip
+          echo "✓ mp4decrypt-linux-x86_64.tar.gz"
+
+      - name: "mp4decrypt: Windows x86_64"
+        run: |
+          set -euo pipefail
+          URL="https://www.bok.net/Bento4/binaries/Bento4-SDK-${{ env.BENTO4_VERSION }}.x86_64-microsoft-win32.zip"
+          echo "→ Downloading mp4decrypt Windows x86_64 from $URL"
+          curl -fL --retry 3 -o work/bento4.zip "$URL"
+          mkdir -p work/extract && unzip -q work/bento4.zip -d work/extract
+          BIN=$(find work/extract -name "mp4decrypt.exe" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mp4decrypt.exe
+          (cd work/pkg && zip -q ../../staging/mp4decrypt-windows-x86_64.zip mp4decrypt.exe)
+          rm -rf work/extract work/pkg work/bento4.zip
+          echo "✓ mp4decrypt-windows-x86_64.zip"
+
+      # =============================================================
+      # N_m3u8DL-RE
+      # Source: nilaoda/N_m3u8DL-RE GitHub releases (latest)
+      # =============================================================
+
+      - name: "N_m3u8DL-RE: Fetch latest release metadata"
+        id: nm3u8dlre_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api repos/nilaoda/N_m3u8DL-RE/releases/latest > work/nm3u8dlre_release.json
+          echo "tag=$(jq -r '.tag_name' work/nm3u8dlre_release.json)" >> "$GITHUB_OUTPUT"
+
+      - name: "N_m3u8DL-RE: All platforms"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          package_nm3u8dlre() {
+            local rid="$1" output_name="$2" binary_name="${3:-N_m3u8DL-RE}"
+
+            # Find the asset URL containing this Runtime ID
+            local asset_url
+            asset_url=$(jq -r ".assets[] | select(.name | contains(\"${rid}\")) | .browser_download_url" \
+              work/nm3u8dlre_release.json | head -1)
+
+            if [ -z "$asset_url" ] || [ "$asset_url" = "null" ]; then
+              echo "⚠ No asset found for RID: $rid — skipping $output_name"
+              return 0
+            fi
+
+            local asset_name
+            asset_name=$(basename "$asset_url")
+            echo "→ Downloading $output_name ($asset_name)"
+            curl -fL --retry 3 -o "work/$asset_name" "$asset_url" || { echo "⚠ Download failed for $output_name"; return 0; }
+
+            mkdir -p work/extract
+            case "$asset_name" in
+              *.tar.gz) tar -xzf "work/$asset_name" -C work/extract ;;
+              *.zip)    unzip -q "work/$asset_name" -d work/extract ;;
+              *)        echo "⚠ Unknown archive format: $asset_name"; rm -rf work/extract; return 0 ;;
+            esac
+
+            local bin
+            bin=$(find work/extract -name "$binary_name" -o -name "${binary_name}.exe" | head -1)
+            if [ -z "$bin" ]; then
+              echo "⚠ Binary '$binary_name' not found in archive for $output_name"
+              rm -rf work/extract "work/$asset_name"
+              return 0
+            fi
+
+            local actual_name
+            actual_name=$(basename "$bin")
+            mkdir -p work/pkg
+            cp "$bin" "work/pkg/$actual_name"
+            chmod +x "work/pkg/$actual_name"
+
+            case "$output_name" in
+              *.tar.gz) tar -czf "staging/$output_name" -C work/pkg "$actual_name" ;;
+              *.zip)    (cd work/pkg && zip -q "../../staging/$output_name" "$actual_name") ;;
+            esac
+
+            rm -rf work/extract work/pkg "work/$asset_name"
+            echo "✓ $output_name"
+          }
+
+          package_nm3u8dlre "linux-x64"   "nm3u8dlre-linux-x86_64.tar.gz"
+          package_nm3u8dlre "linux-arm64"  "nm3u8dlre-linux-aarch64.tar.gz"
+          package_nm3u8dlre "win-x64"      "nm3u8dlre-windows-x86_64.zip"    "N_m3u8DL-RE.exe"
+          package_nm3u8dlre "win-arm64"    "nm3u8dlre-windows-aarch64.zip"   "N_m3u8DL-RE.exe"
+          package_nm3u8dlre "osx-x64"      "nm3u8dlre-macos-x86_64.tar.gz"
+          package_nm3u8dlre "osx-arm64"    "nm3u8dlre-macos-aarch64.tar.gz"
+
+      # =============================================================
+      # MP4Box (GPAC)
+      # Source: download.tsi.telecom-paristech.fr/gpac/new_builds/
+      # =============================================================
+
+      - name: "MP4Box: Linux x86_64 (.deb)"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "→ Downloading MP4Box Linux x86_64"
+          curl -fL --retry 3 -o work/gpac.deb \
+            "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_linux64.deb"
+          mkdir -p work/deb_extract
+          (cd work/deb_extract && ar x ../gpac.deb)
+          DATA_TAR=$(find work/deb_extract -name "data.tar.*" | head -1)
+          mkdir -p work/deb_contents
+          tar -xf "$DATA_TAR" -C work/deb_contents
+          MP4BOX=$(find work/deb_contents -name "MP4Box" -type f | head -1)
+          if [ -n "$MP4BOX" ]; then
+            mkdir -p work/pkg
+            cp "$MP4BOX" work/pkg/MP4Box
+            chmod +x work/pkg/MP4Box
+            tar -czf staging/mp4box-linux-x86_64.tar.gz -C work/pkg MP4Box
+            echo "✓ mp4box-linux-x86_64.tar.gz"
+          else
+            echo "⚠ MP4Box binary not found in .deb"
+          fi
+          rm -rf work/deb_extract work/deb_contents work/pkg work/gpac.deb
+
+      - name: "MP4Box: Windows x86_64 (NSIS)"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "→ Downloading MP4Box Windows x86_64"
+          curl -fL --retry 3 -o work/gpac.exe \
+            "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_win64.exe"
+          mkdir -p work/nsis_extract
+          7z x work/gpac.exe -owork/nsis_extract -y > /dev/null 2>&1
+          MP4BOX=$(find work/nsis_extract -name "MP4Box.exe" -type f | head -1)
+          if [ -n "$MP4BOX" ]; then
+            mkdir -p work/pkg
+            cp "$MP4BOX" work/pkg/MP4Box.exe
+            (cd work/pkg && zip -q ../../staging/mp4box-windows-x86_64.zip MP4Box.exe)
+            echo "✓ mp4box-windows-x86_64.zip"
+          else
+            echo "⚠ MP4Box.exe not found in NSIS installer"
+          fi
+          rm -rf work/nsis_extract work/pkg work/gpac.exe
+
+      - name: "MP4Box: macOS (.pkg)"
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          echo "→ Downloading MP4Box macOS"
+          curl -fL --retry 3 -o work/gpac.pkg \
+            "https://download.tsi.telecom-paristech.fr/gpac/new_builds/gpac_latest_head_macos.pkg"
+
+          # Extract .pkg (XAR archive) using bsdtar, fallback to 7z
+          mkdir -p work/pkg_extract
+          bsdtar -xf work/gpac.pkg -C work/pkg_extract 2>/dev/null || \
+            7z x work/gpac.pkg -owork/pkg_extract -y > /dev/null 2>&1
+
+          # Extract Payload files (gzip-compressed cpio archives)
+          mkdir -p work/pkg_contents
+          find work/pkg_extract -name "Payload" -type f | while IFS= read -r payload; do
+            (cd work/pkg_contents && gunzip -c "$payload" | cpio -id 2>/dev/null) || \
+            (cd work/pkg_contents && cpio -id < "$payload" 2>/dev/null) || true
+          done
+
+          MP4BOX=$(find work/pkg_contents -name "MP4Box" -type f | head -1)
+          if [ -n "$MP4BOX" ]; then
+            mkdir -p work/pkg
+            cp "$MP4BOX" work/pkg/MP4Box
+            chmod +x work/pkg/MP4Box
+
+            # Include lib/ directory if present (needed for macOS dynamic linking)
+            MP4BOX_PARENT=$(dirname "$MP4BOX")
+            for libdir in "${MP4BOX_PARENT}/lib" "${MP4BOX_PARENT}/../lib"; do
+              if [ -d "$libdir" ]; then
+                cp -r "$libdir" work/pkg/lib
+                break
+              fi
+            done
+
+            tar -czf staging/mp4box-macos-x86_64.tar.gz -C work/pkg .
+            # aarch64 uses the same x86_64 binary via Rosetta 2
+            cp staging/mp4box-macos-x86_64.tar.gz staging/mp4box-macos-aarch64.tar.gz
+            echo "✓ mp4box-macos-x86_64.tar.gz"
+            echo "✓ mp4box-macos-aarch64.tar.gz (Rosetta 2)"
+          else
+            echo "⚠ MP4Box binary not found in .pkg"
+          fi
+          rm -rf work/pkg_extract work/pkg_contents work/pkg work/gpac.pkg
+
+      # =============================================================
+      # Upload to "latest" Release
+      # =============================================================
+
+      - name: List produced assets
+        run: |
+          echo "=== Produced assets ==="
+          ls -lh staging/
+          echo "Total: $(ls staging/ | wc -l) assets"
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ASSET_COUNT=$(ls staging/ | wc -l)
+          if [ "$ASSET_COUNT" -eq 0 ]; then
+            echo "⚠ No assets produced — skipping upload"
+            exit 1
+          fi
+
+          echo "→ Uploading $ASSET_COUNT assets to 'latest' release..."
+          for file in staging/*; do
+            name=$(basename "$file")
+            echo "  ↳ $name ($(du -h "$file" | cut -f1))"
+            gh release upload latest "$file" --repo "${{ github.repository }}" --clobber
+          done
+          echo "✓ All $ASSET_COUNT assets uploaded"
+
+      - name: Summary
+        run: |
+          echo "## Populate Tools Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Asset | Size |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-------|------|" >> "$GITHUB_STEP_SUMMARY"
+          for file in staging/*; do
+            name=$(basename "$file")
+            size=$(du -h "$file" | cut -f1)
+            echo "| \`$name\` | $size |" >> "$GITHUB_STEP_SUMMARY"
+          done
