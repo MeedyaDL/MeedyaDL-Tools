@@ -716,14 +716,40 @@ jobs:
           pip install --upgrade pip
           pip install pyinstaller votify gytmdl gamdl
 
+      - name: Generate entry-point wrapper scripts
+        shell: python
+        run: |
+          """Generate small Python scripts from console_scripts entry points.
+
+          On Windows, pip creates .exe launchers that PyInstaller cannot analyse.
+          This step writes a <tool>_entry.py for each tool that simply imports
+          and calls the real entry-point function."""
+          from importlib.metadata import entry_points
+          import pathlib, json
+
+          tools = ["votify", "gytmdl", "gamdl"]
+          found = {}
+          for ep in entry_points(group="console_scripts"):
+              if ep.name in tools:
+                  mod, func = ep.value.split(":")
+                  script = f"from {mod} import {func}\n{func}()\n"
+                  path = pathlib.Path(f"{ep.name}_entry.py")
+                  path.write_text(script)
+                  found[ep.name] = str(path)
+                  print(f"✓ Generated {path}  ({ep.value})")
+
+          for t in tools:
+              if t not in found:
+                  print(f"⚠ No console_scripts entry point found for {t}")
+
       - name: Build executables (Unix)
         if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           mkdir -p staging
           for tool in votify gytmdl gamdl; do
-            ENTRY=$(which "$tool" 2>/dev/null || true)
-            if [ -n "$ENTRY" ]; then
+            ENTRY="${tool}_entry.py"
+            if [ -f "$ENTRY" ]; then
               echo "→ Building $tool from $ENTRY"
               pyinstaller --onefile --name "$tool" --distpath dist "$ENTRY" 2>&1 || {
                 echo "⚠ PyInstaller failed for $tool"
@@ -737,7 +763,7 @@ jobs:
                 echo "✓ ${tool}-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
               fi
             else
-              echo "⚠ $tool entry point not found in PATH"
+              echo "⚠ $tool entry-point script not found"
             fi
             rm -rf build dist *.spec
           done
@@ -748,8 +774,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path staging | Out-Null
           foreach ($tool in @("votify", "gytmdl", "gamdl")) {
-            $entry = (Get-Command $tool -ErrorAction SilentlyContinue).Source
-            if ($entry) {
+            $entry = "${tool}_entry.py"
+            if (Test-Path $entry) {
               Write-Host "→ Building $tool from $entry"
               pyinstaller --onefile --name $tool --distpath dist $entry 2>&1
               if (Test-Path "dist/$tool.exe") {
@@ -759,7 +785,7 @@ jobs:
                 Write-Host "⚠ PyInstaller output not found for $tool"
               }
             } else {
-              Write-Host "⚠ $tool entry point not found"
+              Write-Host "⚠ $tool entry-point script not found"
             }
             Remove-Item -Recurse -Force -ErrorAction SilentlyContinue build, dist, *.spec
           }
