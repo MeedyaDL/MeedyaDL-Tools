@@ -265,7 +265,7 @@ jobs:
 
           # Debug: list extracted contents to understand NSIS directory structure
           echo "--- NSIS extracted contents (exe files) ---"
-          find work/nsis_extract -iname "*.exe" -type f 2>/dev/null || true
+          find work/nsis_extract -iname "*.exe" -type f 2>/dev/null | head -20 || true
           echo "---"
 
           # Case-insensitive search — NSIS may use $INSTDIR/ prefix
@@ -283,7 +283,7 @@ jobs:
           else
             echo "⚠ MP4Box.exe not found in NSIS installer"
             echo "--- Full directory listing ---"
-            find work/nsis_extract -type f | head -50
+            find work/nsis_extract -type f 2>/dev/null | head -50 || true
           fi
           rm -rf work/nsis_extract work/pkg work/gpac.exe
 
@@ -302,7 +302,7 @@ jobs:
 
           # Debug: show extracted pkg structure
           echo "--- .pkg extracted structure ---"
-          find work/pkg_extract -type f | head -30
+          find work/pkg_extract -type f 2>/dev/null | head -30 || true
           echo "---"
 
           # Extract Payload files — try multiple decompression methods
@@ -321,7 +321,7 @@ jobs:
           done
 
           echo "--- Extracted contents ---"
-          find work/pkg_contents -type f | head -30
+          find work/pkg_contents -type f 2>/dev/null | head -30 || true
           echo "---"
 
           MP4BOX=$(find work/pkg_contents -name "MP4Box" -type f | head -1)
@@ -352,7 +352,7 @@ jobs:
           else
             echo "⚠ MP4Box binary not found in .pkg"
             echo "--- Full pkg_contents listing ---"
-            find work/pkg_contents -type f | head -50
+            find work/pkg_contents -type f 2>/dev/null | head -50 || true
           fi
           rm -rf work/pkg_extract work/pkg_contents work/pkg work/gpac.pkg
 
