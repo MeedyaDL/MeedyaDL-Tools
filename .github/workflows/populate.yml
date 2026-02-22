@@ -307,25 +307,17 @@ jobs:
 
           # Extract Payload files — try multiple decompression methods
           # Payloads can be: gzip, bzip2, xz, zstd, or plain cpio
+          # NOTE: Must use absolute paths since we cd into pkg_contents
           mkdir -p work/pkg_contents
-          for payload in $(find work/pkg_extract -name "Payload" -type f); do
+          ABS_PKG_CONTENTS="$(pwd)/work/pkg_contents"
+          for payload in $(find "$(pwd)/work/pkg_extract" -name "Payload" -type f); do
             echo "Processing payload: $payload ($(file "$payload" | cut -d: -f2))"
-            (cd work/pkg_contents && gunzip -c "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
-            (cd work/pkg_contents && bzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
-            (cd work/pkg_contents && xzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
-            (cd work/pkg_contents && zstdcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
-            (cd work/pkg_contents && cpio -id < "$payload" 2>/dev/null) || \
+            (cd "$ABS_PKG_CONTENTS" && gunzip -c "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd "$ABS_PKG_CONTENTS" && bzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd "$ABS_PKG_CONTENTS" && xzcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd "$ABS_PKG_CONTENTS" && zstdcat "$payload" 2>/dev/null | cpio -id 2>/dev/null) || \
+            (cd "$ABS_PKG_CONTENTS" && cpio -id < "$payload" 2>/dev/null) || \
             echo "⚠ Could not decompress payload: $payload"
-          done
-
-          # Also try extracting any .pkg subdirectories with 7z (handles nested pkgs)
-          for subpkg in $(find work/pkg_extract -name "*.pkg" -type d); do
-            if [ -f "$subpkg/Payload" ]; then
-              echo "Already handled as directory payload"
-            else
-              # Try 7z on the subpkg directory
-              7z x "$subpkg" -owork/pkg_contents -y > /dev/null 2>&1 || true
-            fi
           done
 
           echo "--- Extracted contents ---"
