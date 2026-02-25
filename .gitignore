@@ -31,3 +31,9 @@ build/
 # === Logs ===
 *.log
 npm-debug.log*
+
+# === AI ===
+.claude/
+.open/
+.chatgpt/
+.codex/
