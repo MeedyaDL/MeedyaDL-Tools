@@ -46,7 +46,7 @@ jobs:
       github.event_name != 'pull_request' ||
       contains(github.event.pull_request.labels.*.name, 'update-tools')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install extraction tools
         run: |
@@ -844,7 +844,7 @@ jobs:
       github.event_name != 'pull_request' &&
       (needs.download-binaries.result == 'success' || needs.build-python-tools.result == 'success')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
