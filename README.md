@@ -60,6 +60,13 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 | `arch` | `x86_64`, `x86`, `aarch64`, `armhf` |
 | `ext` | `.tar.gz` (Linux/macOS), `.zip` (Windows), `.exe` (installers) |
 
+## Releases
+
+Each build creates a **date-stamped release** (e.g. `2026-02-25`) containing all tool binaries. The `latest` tag always points to the most recent build.
+
+- **Date-stamped releases** — Permanent snapshots you can pin to (e.g. `2026-02-25`)
+- **`latest` release** — Always updated to point to the newest build
+
 ## Automation
 
 The **Populate Tools** workflow automatically:
@@ -67,27 +74,38 @@ The **Populate Tools** workflow automatically:
 1. Downloads latest binaries from all upstream sources
 2. Builds Python tools (Votify, gytmdl, gamdl) via PyInstaller for each platform
 3. Repackages everything with standardized names
-4. Uploads to the `latest` GitHub Release
+4. Creates a date-stamped release and updates the `latest` tag
 
 ### Triggers
 
-| Trigger | When |
-| ------- | ---- |
-| **Push to main** | Every commit to the main branch |
-| **PR with label** | Pull requests labeled `update-tools` |
-| **Monthly schedule** | 1st of each month at 06:00 UTC |
-| **Manual** | Actions > Populate Tools > Run workflow |
+| Trigger | How | When to use |
+| ------- | --- | ----------- |
+| **Manual dispatch** | GitHub > Actions > Populate Tools > "Run workflow" | A specific tool was updated upstream |
+| **Push to main** | Automatic on every commit to main | Workflow/config changes |
+| **PR with label** | Add `update-tools` label to a PR | Testing workflow changes before merging |
+| **Monthly schedule** | Automatic on the 1st of each month at 06:00 UTC | Catches upstream updates automatically |
+
+### How to update when an upstream tool releases a new version
+
+No code changes are needed. The workflow always fetches the **latest** version from each upstream source. Simply:
+
+1. Go to **Actions** > **Populate Tools** > **Run workflow**
+2. Click the green **Run workflow** button
+3. Wait for the build to complete (~6 minutes)
+4. A new date-stamped release will appear with the updated tools
 
 ## Usage
 
-Download assets from the [latest release](../../releases/tag/latest):
+Download assets from the [latest release](../../releases/tag/latest), or pin to a specific date:
 
 ```bash
-# Example: download yt-dlp for Linux x86_64
+# Always get the newest build
 curl -fL -o yt-dlp.tar.gz \
   "https://github.com/MeedyaDL/MeedyaDL-Tools/releases/download/latest/yt-dlp-linux-x86_64.tar.gz"
-tar -xzf yt-dlp.tar.gz
-./yt-dlp --version
+
+# Pin to a specific date
+curl -fL -o yt-dlp.tar.gz \
+  "https://github.com/MeedyaDL/MeedyaDL-Tools/releases/download/2026-02-25/yt-dlp-linux-x86_64.tar.gz"
 ```
 
 ## Contributing

@@ -833,7 +833,9 @@ jobs:
           if-no-files-found: warn
 
   # =====================================================================
-  # Job 3: Upload all assets to the "latest" GitHub Release
+  # Job 3: Upload all assets to GitHub Releases
+  # Creates a date-stamped release (e.g. 2026-02-25) and updates the
+  # "latest" tag to always point at the newest release.
   # =====================================================================
   upload-release:
     needs: [download-binaries, build-python-tools]
@@ -860,36 +862,70 @@ jobs:
           ls -lh staging/
           echo "Total: $(ls staging/ | wc -l) assets"
 
-      - name: Ensure 'latest' release exists
+      - name: Determine release tag
+        id: tag
+        run: |
+          # Date-based tag: YYYY-MM-DD, with a numeric suffix if run multiple times per day
+          BASE_TAG="$(date -u +%Y-%m-%d)"
+          TAG="$BASE_TAG"
+          SUFFIX=1
+          while gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; do
+            SUFFIX=$((SUFFIX + 1))
+            TAG="${BASE_TAG}.${SUFFIX}"
+          done
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "→ Release tag: $TAG"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release view latest --repo "${{ github.repository }}" > /dev/null 2>&1 || \
-          gh release create latest --repo "${{ github.repository }}" \
-            --title "Latest Tool Binaries" \
-            --notes "Auto-updated mirror of external tool binaries for MeedyaDL." \
-            --latest
 
-      - name: Upload assets to release
+      - name: Create date-stamped release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          TAG="${{ steps.tag.outputs.tag }}"
           ASSET_COUNT=$(ls staging/ | wc -l)
           if [ "$ASSET_COUNT" -eq 0 ]; then
             echo "⚠ No assets produced — skipping upload"
             exit 1
           fi
-          echo "→ Uploading $ASSET_COUNT assets to 'latest' release..."
-          for file in staging/*; do
-            name=$(basename "$file")
-            echo "  ↳ $name ($(du -h "$file" | cut -f1))"
-            gh release upload latest "$file" --repo "${{ github.repository }}" --clobber
-          done
-          echo "✓ All $ASSET_COUNT assets uploaded"
+
+          echo "→ Creating release $TAG with $ASSET_COUNT assets..."
+          gh release create "$TAG" staging/* \
+            --repo "${{ github.repository }}" \
+            --title "Tool Mirror — $TAG" \
+            --notes "Automated tool mirror build from $(date -u +%Y-%m-%d).
+
+          Triggered by: ${{ github.event_name }}
+          Commit: ${{ github.sha }}
+          Assets: $ASSET_COUNT"
+
+          echo "✓ Release $TAG created"
+
+      - name: Update 'latest' tag to point here
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+
+          # Delete old 'latest' release and tag if they exist
+          gh release delete latest --repo "${{ github.repository }}" --yes 2>/dev/null || true
+          git push --delete origin latest 2>/dev/null || true
+
+          # Re-create 'latest' release pointing at the same commit
+          gh release create latest staging/* \
+            --repo "${{ github.repository }}" \
+            --title "Latest Tool Binaries" \
+            --notes "Always points to the most recent build. Current: **$TAG**
+
+          For a specific version, see the [date-stamped releases](../../releases)." \
+            --latest
+
+          echo "✓ 'latest' tag updated to match $TAG"
 
       - name: Summary
         run: |
-          echo "## Populate Tools Summary" >> "$GITHUB_STEP_SUMMARY"
+          TAG="${{ steps.tag.outputs.tag }}"
+          echo "## Populate Tools — $TAG" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Asset | Size |" >> "$GITHUB_STEP_SUMMARY"
           echo "|-------|------|" >> "$GITHUB_STEP_SUMMARY"
