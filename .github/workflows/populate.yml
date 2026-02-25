@@ -916,7 +916,7 @@ jobs:
           # NOT marked as --latest so the date-stamped release stays featured
           gh release create latest staging/* \
             --repo "${{ github.repository }}" \
-            --title "Latest Tool Binaries — $TAG" \
+            --title "$TAG" \
             --latest=false \
             --notes "Stable download tag — always points to the most recent build.
 
