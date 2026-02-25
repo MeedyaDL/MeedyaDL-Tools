@@ -897,11 +897,12 @@ jobs:
 
           Triggered by: ${{ github.event_name }}
           Commit: ${{ github.sha }}
-          Assets: $ASSET_COUNT"
+          Assets: $ASSET_COUNT" \
+            --latest
 
-          echo "✓ Release $TAG created"
+          echo "✓ Release $TAG created (marked as Latest)"
 
-      - name: Update 'latest' tag to point here
+      - name: Update 'latest' tag for stable download URLs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -911,14 +912,15 @@ jobs:
           gh release delete latest --repo "${{ github.repository }}" --yes 2>/dev/null || true
           git push --delete origin latest 2>/dev/null || true
 
-          # Re-create 'latest' release pointing at the same commit
+          # Re-create 'latest' tag with same assets (for stable download URLs)
+          # NOT marked as --latest so the date-stamped release stays featured
           gh release create latest staging/* \
             --repo "${{ github.repository }}" \
-            --title "Latest Tool Binaries" \
-            --notes "Always points to the most recent build. Current: **$TAG**
+            --title "Latest Tool Binaries — $TAG" \
+            --notes "Stable download tag — always points to the most recent build.
 
-          For a specific version, see the [date-stamped releases](../../releases)." \
-            --latest
+          Current build: **$TAG**
+          Use \`/releases/download/latest/<asset>\` for URLs that always fetch the newest version."
 
           echo "✓ 'latest' tag updated to match $TAG"
 
