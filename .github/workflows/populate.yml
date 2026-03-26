@@ -675,7 +675,7 @@ jobs:
           ls -lh staging/
           echo "Total: $(ls staging/ | wc -l) assets"
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: binary-tools
           path: staging/
@@ -825,7 +825,7 @@ jobs:
           Write-Host "=== Python tools (${{ matrix.platform }}-${{ matrix.arch }}) ==="
           Get-ChildItem staging/ -ErrorAction SilentlyContinue | Format-Table Name, Length
 
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v7
         with:
           name: python-tools-${{ matrix.platform }}-${{ matrix.arch }}
           path: staging/
