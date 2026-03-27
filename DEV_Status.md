@@ -25,6 +25,7 @@ Current build status and tool availability for MeedyaDL-Tools.
 | gamdl | OK | OK | — | — | OK | — | OK |
 | AMdecrypt | OK | OK | OK | — | OK | OK | OK |
 | Wrapper | OK | — | — | — | — | — | — |
+| MediaInfo | OK | OK | — | — | OK | OK | OK |
 
 **Legend:**
 - **OK** = Pre-built binary downloaded from upstream
@@ -55,10 +56,11 @@ Current build status and tool availability for MeedyaDL-Tools.
 | **get_iplayer** | Perl script on Unix (requires `perl`); Windows installer bundles Perl |
 | **FFmpeg (macOS)** | evermeet.cx provides x86_64 binary; runs via Rosetta 2 on Apple Silicon |
 | **MP4Box** | Extracted from platform-specific installers (.deb, .exe, .pkg) |
+| **MediaInfo** | Binaries from mediaarea.net (not GitHub releases); macOS DMG extracted via 7z |
 
 ## Version Tracking
 
-Tool versions are automatically fetched from upstream on each CI run. Check the [latest release](https://github.com/MeedyaDL/MeedyaDL-Tools/releases/tag/latest) for current versions.
+Tool versions are tracked in [`versions.json`](versions.json). On scheduled runs, the workflow compares upstream versions against this file and only rebuilds tools with new releases. On push and manual dispatch, all tools are rebuilt. Check the [latest release](https://github.com/MeedyaDL/MeedyaDL-Tools/releases/tag/latest) for current versions.
 
 ## Upstream Repositories
 
@@ -77,3 +79,4 @@ Tool versions are automatically fetched from upstream on each CI run. Check the 
 | gamdl | [glomatico/gamdl](https://github.com/glomatico/gamdl) | PyPI releases |
 | AMdecrypt | [glomatico/amdecrypt](https://github.com/glomatico/amdecrypt) | GoReleaser |
 | Wrapper | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) | Commit-hash tags |
+| MediaInfo | [MediaArea/MediaInfo](https://github.com/MediaArea/MediaInfo) | Semver releases (binaries on mediaarea.net) |

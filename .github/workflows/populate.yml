@@ -7,6 +7,10 @@
 # via PyInstaller, repackages everything with standardized naming, and uploads
 # to the "latest" GitHub Release.
 #
+# Smart version checking: on scheduled runs, only tools with new upstream
+# versions are rebuilt. Unchanged tools are carried forward from the previous
+# release. Push, dispatch, and PR triggers always do a full rebuild.
+#
 # Asset naming convention: {tool_id}-{os}-{arch}.{ext}
 #   os:   linux, windows, macos
 #   arch: x86_64, x86, aarch64, armhf
@@ -37,14 +41,223 @@ env:
 
 jobs:
   # =====================================================================
+  # Job 0: Check upstream versions
+  # Compares upstream release tags against versions.json to determine
+  # which tools need rebuilding. On non-schedule events, all tools are
+  # marked as changed (force rebuild).
+  # =====================================================================
+  check-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      force: ${{ steps.check.outputs.force }}
+      any_changed: ${{ steps.check.outputs.any_changed }}
+      any_binary_changed: ${{ steps.check.outputs.any_binary_changed }}
+      python_tools: ${{ steps.check.outputs.python_tools }}
+      ffmpeg: ${{ steps.check.outputs.ffmpeg }}
+      yt_dlp: ${{ steps.check.outputs.yt_dlp }}
+      mp4decrypt: ${{ steps.check.outputs.mp4decrypt }}
+      mp4box: ${{ steps.check.outputs.mp4box }}
+      nm3u8dlre: ${{ steps.check.outputs.nm3u8dlre }}
+      aria2c: ${{ steps.check.outputs.aria2c }}
+      fpcalc: ${{ steps.check.outputs.fpcalc }}
+      get_iplayer: ${{ steps.check.outputs.get_iplayer }}
+      mediainfo: ${{ steps.check.outputs.mediainfo }}
+      amdecrypt: ${{ steps.check.outputs.amdecrypt }}
+      wrapper: ${{ steps.check.outputs.wrapper }}
+      votify: ${{ steps.check.outputs.votify }}
+      gytmdl: ${{ steps.check.outputs.gytmdl }}
+      gamdl: ${{ steps.check.outputs.gamdl }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Check upstream versions
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          # On non-schedule events, force a full rebuild
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            echo "force=true" >> "$GITHUB_OUTPUT"
+            for tool in ffmpeg yt_dlp mp4decrypt mp4box nm3u8dlre aria2c fpcalc \
+                        get_iplayer mediainfo amdecrypt wrapper votify gytmdl gamdl; do
+              echo "${tool}=true" >> "$GITHUB_OUTPUT"
+            done
+            echo "python_tools=true" >> "$GITHUB_OUTPUT"
+            echo "any_binary_changed=true" >> "$GITHUB_OUTPUT"
+            echo "any_changed=true" >> "$GITHUB_OUTPUT"
+            echo "→ Force rebuild (${{ github.event_name }}): all tools marked as changed"
+            exit 0
+          fi
+
+          echo "force=false" >> "$GITHUB_OUTPUT"
+          echo "→ Scheduled run: checking upstream versions against versions.json"
+
+          VERSIONS=$(cat versions.json)
+          ANY_BINARY="false"
+          PYTHON_CHANGED="false"
+
+          check_github() {
+            local key="$1" repo="$2" endpoint="${3:-releases/latest}" jq_expr="${4:-.tag_name}"
+            local current latest
+            current=$(echo "$VERSIONS" | jq -r ".\"$key\" // \"\"")
+            latest=$(gh api "repos/$repo/$endpoint" --jq "$jq_expr" 2>/dev/null || echo "")
+            if [ -z "$latest" ]; then
+              echo "${key}=true" >> "$GITHUB_OUTPUT"
+              echo "→ $key: REBUILD (could not fetch upstream version)"
+              ANY_BINARY="true"
+              return
+            fi
+            if [ "$current" != "$latest" ] || [ -z "$current" ]; then
+              echo "${key}=true" >> "$GITHUB_OUTPUT"
+              echo "→ $key: CHANGED ($current → $latest)"
+              ANY_BINARY="true"
+            else
+              echo "${key}=false" >> "$GITHUB_OUTPUT"
+              echo "→ $key: unchanged ($current)"
+            fi
+          }
+
+          check_pypi() {
+            local key="$1" package="$2"
+            local current latest
+            current=$(echo "$VERSIONS" | jq -r ".\"$key\" // \"\"")
+            latest=$(curl -sf "https://pypi.org/pypi/$package/json" | jq -r '.info.version' 2>/dev/null || echo "")
+            if [ -z "$latest" ]; then
+              echo "${key}=true" >> "$GITHUB_OUTPUT"
+              echo "→ $key: REBUILD (could not fetch PyPI version)"
+              PYTHON_CHANGED="true"
+              return
+            fi
+            if [ "$current" != "$latest" ] || [ -z "$current" ]; then
+              echo "${key}=true" >> "$GITHUB_OUTPUT"
+              echo "→ $key: CHANGED ($current → $latest)"
+              PYTHON_CHANGED="true"
+            else
+              echo "${key}=false" >> "$GITHUB_OUTPUT"
+              echo "→ $key: unchanged ($current)"
+            fi
+          }
+
+          # --- GitHub release tools ---
+          check_github "yt_dlp"      "yt-dlp/yt-dlp"
+          check_github "nm3u8dlre"   "nilaoda/N_m3u8DL-RE"
+          check_github "aria2c"      "aria2/aria2"
+          check_github "fpcalc"      "acoustid/chromaprint"
+          check_github "get_iplayer" "get-iplayer/get_iplayer"
+          check_github "mediainfo"   "MediaArea/MediaInfo"
+          check_github "amdecrypt"   "glomatico/amdecrypt"
+
+          # Wrapper: uses first entry in releases array (no /latest endpoint)
+          check_github "wrapper" "WorldObservationLog/wrapper" "releases" ".[0].tag_name"
+
+          # FFmpeg: rolling 'latest' tag — check published_at as the version marker
+          check_github "ffmpeg" "BtbN/FFmpeg-Builds" "releases/latest" ".published_at"
+
+          # mp4decrypt: pinned version — compare against workflow env var
+          MP4_CURRENT=$(echo "$VERSIONS" | jq -r '."mp4decrypt" // ""')
+          if [ "$MP4_CURRENT" != "${{ env.BENTO4_VERSION }}" ] || [ -z "$MP4_CURRENT" ]; then
+            echo "mp4decrypt=true" >> "$GITHUB_OUTPUT"
+            echo "→ mp4decrypt: CHANGED ($MP4_CURRENT → ${{ env.BENTO4_VERSION }})"
+            ANY_BINARY="true"
+          else
+            echo "mp4decrypt=false" >> "$GITHUB_OUTPUT"
+            echo "→ mp4decrypt: unchanged ($MP4_CURRENT)"
+          fi
+
+          # MP4Box: nightly builds — always rebuild
+          echo "mp4box=true" >> "$GITHUB_OUTPUT"
+          echo "→ mp4box: REBUILD (nightly builds, always check)"
+          ANY_BINARY="true"
+
+          # --- PyPI tools ---
+          check_pypi "votify" "votify"
+          check_pypi "gytmdl" "gytmdl"
+          check_pypi "gamdl"  "gamdl"
+
+          echo "python_tools=$PYTHON_CHANGED" >> "$GITHUB_OUTPUT"
+          echo "any_binary_changed=$ANY_BINARY" >> "$GITHUB_OUTPUT"
+          if [ "$ANY_BINARY" = "true" ] || [ "$PYTHON_CHANGED" = "true" ]; then
+            echo "any_changed=true" >> "$GITHUB_OUTPUT"
+            echo "→ Result: changes detected — rebuild needed"
+          else
+            echo "any_changed=false" >> "$GITHUB_OUTPUT"
+            echo "→ Result: no changes detected — skipping rebuild"
+          fi
+
+      - name: Write updated versions.json
+        if: steps.check.outputs.any_changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Build a new versions.json with all current upstream versions
+          python3 << 'PYEOF'
+          import json, subprocess, sys
+
+          def gh_api(endpoint, jq_expr=".tag_name"):
+              try:
+                  result = subprocess.run(
+                      ["gh", "api", endpoint, "--jq", jq_expr],
+                      capture_output=True, text=True, timeout=30
+                  )
+                  return result.stdout.strip() if result.returncode == 0 else ""
+              except Exception:
+                  return ""
+
+          def pypi_version(package):
+              import urllib.request, json as j
+              try:
+                  with urllib.request.urlopen(f"https://pypi.org/pypi/{package}/json", timeout=15) as r:
+                      return j.loads(r.read())["info"]["version"]
+              except Exception:
+                  return ""
+
+          versions = {}
+          versions["ffmpeg"] = gh_api("repos/BtbN/FFmpeg-Builds/releases/latest", ".published_at")
+          versions["yt-dlp"] = gh_api("repos/yt-dlp/yt-dlp/releases/latest")
+          versions["mp4decrypt"] = "${{ env.BENTO4_VERSION }}"
+          versions["mp4box"] = ""  # nightly, no stable version
+          versions["nm3u8dlre"] = gh_api("repos/nilaoda/N_m3u8DL-RE/releases/latest")
+          versions["aria2c"] = gh_api("repos/aria2/aria2/releases/latest")
+          versions["fpcalc"] = gh_api("repos/acoustid/chromaprint/releases/latest")
+          versions["get_iplayer"] = gh_api("repos/get-iplayer/get_iplayer/releases/latest")
+          versions["mediainfo"] = gh_api("repos/MediaArea/MediaInfo/releases/latest")
+          versions["amdecrypt"] = gh_api("repos/glomatico/amdecrypt/releases/latest")
+          versions["wrapper"] = gh_api("repos/WorldObservationLog/wrapper/releases", ".[0].tag_name")
+          versions["votify"] = pypi_version("votify")
+          versions["gytmdl"] = pypi_version("gytmdl")
+          versions["gamdl"] = pypi_version("gamdl")
+
+          # Keep empty strings for tools we couldn't query (will rebuild next time)
+          with open("versions-new.json", "w") as f:
+              json.dump(versions, f, indent=2)
+              f.write("\n")
+          print("→ Wrote versions-new.json")
+          for k, v in sorted(versions.items()):
+              print(f"  {k}: {v or '(unknown)'}")
+          PYEOF
+
+      - uses: actions/upload-artifact@v7
+        if: steps.check.outputs.any_changed == 'true'
+        with:
+          name: updated-versions
+          path: versions-new.json
+          retention-days: 1
+
+  # =====================================================================
   # Job 1: Download pre-built binary tools
-  # Downloads and repackages all tools that provide pre-built binaries
+  # Downloads and repackages all tools that provide pre-built binaries.
+  # On scheduled runs, only tools with new upstream versions are built.
   # =====================================================================
   download-binaries:
+    needs: [check-versions]
     runs-on: ubuntu-latest
     if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'update-tools')
+      needs.check-versions.outputs.any_binary_changed == 'true' &&
+      (github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'update-tools'))
     steps:
       - uses: actions/checkout@v6
 
@@ -62,6 +275,7 @@ jobs:
       # =============================================================
 
       - name: "FFmpeg: Linux x86_64"
+        if: needs.check-versions.outputs.ffmpeg == 'true'
         run: |
           set -euo pipefail
           echo "→ Downloading FFmpeg Linux x86_64"
@@ -75,6 +289,7 @@ jobs:
           echo "✓ ffmpeg-linux-x86_64.tar.gz"
 
       - name: "FFmpeg: Linux aarch64"
+        if: needs.check-versions.outputs.ffmpeg == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -89,6 +304,7 @@ jobs:
           echo "✓ ffmpeg-linux-aarch64.tar.gz"
 
       - name: "FFmpeg: Windows x86_64"
+        if: needs.check-versions.outputs.ffmpeg == 'true'
         run: |
           set -euo pipefail
           echo "→ Downloading FFmpeg Windows x86_64"
@@ -102,6 +318,7 @@ jobs:
           echo "✓ ffmpeg-windows-x86_64.zip"
 
       - name: "FFmpeg: macOS"
+        if: needs.check-versions.outputs.ffmpeg == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -120,6 +337,7 @@ jobs:
       # =============================================================
 
       - name: "yt-dlp: Fetch latest release tag"
+        if: needs.check-versions.outputs.yt_dlp == 'true'
         id: ytdlp_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -129,6 +347,7 @@ jobs:
           echo "→ yt-dlp latest: $TAG"
 
       - name: "yt-dlp: Linux x86_64"
+        if: needs.check-versions.outputs.yt_dlp == 'true'
         run: |
           set -euo pipefail
           TAG="${{ steps.ytdlp_meta.outputs.tag }}"
@@ -141,6 +360,7 @@ jobs:
           echo "✓ yt-dlp-linux-x86_64.tar.gz"
 
       - name: "yt-dlp: Linux aarch64"
+        if: needs.check-versions.outputs.yt_dlp == 'true'
         run: |
           set -euo pipefail
           TAG="${{ steps.ytdlp_meta.outputs.tag }}"
@@ -153,6 +373,7 @@ jobs:
           echo "✓ yt-dlp-linux-aarch64.tar.gz"
 
       - name: "yt-dlp: Windows x86_64"
+        if: needs.check-versions.outputs.yt_dlp == 'true'
         run: |
           set -euo pipefail
           TAG="${{ steps.ytdlp_meta.outputs.tag }}"
@@ -164,6 +385,7 @@ jobs:
           echo "✓ yt-dlp-windows-x86_64.zip"
 
       - name: "yt-dlp: Windows ARM64"
+        if: needs.check-versions.outputs.yt_dlp == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -176,6 +398,7 @@ jobs:
           echo "✓ yt-dlp-windows-aarch64.zip"
 
       - name: "yt-dlp: macOS"
+        if: needs.check-versions.outputs.yt_dlp == 'true'
         run: |
           set -euo pipefail
           TAG="${{ steps.ytdlp_meta.outputs.tag }}"
@@ -193,6 +416,7 @@ jobs:
       # =============================================================
 
       - name: "mp4decrypt: macOS (universal)"
+        if: needs.check-versions.outputs.mp4decrypt == 'true'
         run: |
           set -euo pipefail
           URL="https://www.bok.net/Bento4/binaries/Bento4-SDK-${{ env.BENTO4_VERSION }}.universal-apple-macosx.zip"
@@ -206,6 +430,7 @@ jobs:
           echo "✓ mp4decrypt-macos-aarch64.tar.gz"
 
       - name: "mp4decrypt: Linux x86_64"
+        if: needs.check-versions.outputs.mp4decrypt == 'true'
         run: |
           set -euo pipefail
           URL="https://www.bok.net/Bento4/binaries/Bento4-SDK-${{ env.BENTO4_VERSION }}.x86_64-unknown-linux.zip"
@@ -219,6 +444,7 @@ jobs:
           echo "✓ mp4decrypt-linux-x86_64.tar.gz"
 
       - name: "mp4decrypt: Windows x86_64"
+        if: needs.check-versions.outputs.mp4decrypt == 'true'
         run: |
           set -euo pipefail
           URL="https://www.bok.net/Bento4/binaries/Bento4-SDK-${{ env.BENTO4_VERSION }}.x86_64-microsoft-win32.zip"
@@ -237,6 +463,7 @@ jobs:
       # =============================================================
 
       - name: "N_m3u8DL-RE: Fetch latest release metadata"
+        if: needs.check-versions.outputs.nm3u8dlre == 'true'
         id: nm3u8dlre_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -247,6 +474,7 @@ jobs:
           echo "→ N_m3u8DL-RE latest: $TAG"
 
       - name: "N_m3u8DL-RE: All platforms"
+        if: needs.check-versions.outputs.nm3u8dlre == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -303,6 +531,7 @@ jobs:
       # =============================================================
 
       - name: "MP4Box: Linux x86_64 (.deb)"
+        if: needs.check-versions.outputs.mp4box == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -326,6 +555,7 @@ jobs:
           rm -rf work/deb_extract work/deb_contents work/pkg work/gpac.deb
 
       - name: "MP4Box: Windows x86_64 (NSIS)"
+        if: needs.check-versions.outputs.mp4box == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -349,6 +579,7 @@ jobs:
           rm -rf work/nsis_extract work/pkg work/gpac.exe
 
       - name: "MP4Box: macOS (.pkg)"
+        if: needs.check-versions.outputs.mp4box == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -392,6 +623,7 @@ jobs:
       # =============================================================
 
       - name: "aria2c: Fetch latest release"
+        if: needs.check-versions.outputs.aria2c == 'true'
         id: aria2_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -403,6 +635,7 @@ jobs:
           echo "→ aria2 latest: $TAG (version $VER)"
 
       - name: "aria2c: Windows x86_64"
+        if: needs.check-versions.outputs.aria2c == 'true'
         run: |
           set -euo pipefail
           VER="${{ steps.aria2_meta.outputs.version }}"
@@ -417,6 +650,7 @@ jobs:
           echo "✓ aria2c-windows-x86_64.zip"
 
       - name: "aria2c: Linux x86_64 (compile from source)"
+        if: needs.check-versions.outputs.aria2c == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -448,6 +682,7 @@ jobs:
       # =============================================================
 
       - name: "fpcalc: Fetch latest release"
+        if: needs.check-versions.outputs.fpcalc == 'true'
         id: fpcalc_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -459,6 +694,7 @@ jobs:
           echo "→ chromaprint/fpcalc latest: $TAG"
 
       - name: "fpcalc: Linux x86_64"
+        if: needs.check-versions.outputs.fpcalc == 'true'
         run: |
           set -euo pipefail
           VER="${{ steps.fpcalc_meta.outputs.version }}"
@@ -473,6 +709,7 @@ jobs:
           echo "✓ fpcalc-linux-x86_64.tar.gz"
 
       - name: "fpcalc: Linux aarch64"
+        if: needs.check-versions.outputs.fpcalc == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -488,6 +725,7 @@ jobs:
           echo "✓ fpcalc-linux-aarch64.tar.gz"
 
       - name: "fpcalc: Windows x86_64"
+        if: needs.check-versions.outputs.fpcalc == 'true'
         run: |
           set -euo pipefail
           VER="${{ steps.fpcalc_meta.outputs.version }}"
@@ -502,6 +740,7 @@ jobs:
           echo "✓ fpcalc-windows-x86_64.zip"
 
       - name: "fpcalc: macOS"
+        if: needs.check-versions.outputs.fpcalc == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -525,6 +764,7 @@ jobs:
       # =============================================================
 
       - name: "AMdecrypt: Fetch latest release"
+        if: needs.check-versions.outputs.amdecrypt == 'true'
         id: amdecrypt_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -535,6 +775,7 @@ jobs:
           echo "→ amdecrypt latest: $TAG"
 
       - name: "AMdecrypt: All platforms"
+        if: needs.check-versions.outputs.amdecrypt == 'true'
         run: |
           set -euo pipefail
 
@@ -583,6 +824,7 @@ jobs:
       # =============================================================
 
       - name: "Wrapper: Fetch latest release"
+        if: needs.check-versions.outputs.wrapper == 'true'
         id: wrapper_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -594,6 +836,7 @@ jobs:
           echo "→ wrapper latest: $TAG"
 
       - name: "Wrapper: Linux x86_64"
+        if: needs.check-versions.outputs.wrapper == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -621,12 +864,114 @@ jobs:
           rm -rf work/extract work/pkg work/wrapper.zip
 
       # =============================================================
+      # MediaInfo CLI
+      # Source: MediaArea/MediaInfo (binaries from mediaarea.net)
+      # =============================================================
+
+      - name: "MediaInfo: Fetch latest version"
+        if: needs.check-versions.outputs.mediainfo == 'true'
+        id: mediainfo_meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=$(gh api repos/MediaArea/MediaInfo/releases/latest --jq '.tag_name')
+          VER=$(echo "$TAG" | sed 's/^v//')
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "→ MediaInfo latest: $TAG (version $VER)"
+
+      - name: "MediaInfo: Linux x86_64"
+        if: needs.check-versions.outputs.mediainfo == 'true'
+        run: |
+          set -euo pipefail
+          VER="${{ steps.mediainfo_meta.outputs.version }}"
+          echo "→ Downloading MediaInfo CLI Linux x86_64"
+          curl -fL --retry 3 -o work/mediainfo.zip \
+            "https://mediaarea.net/download/binary/mediainfo/${VER}/MediaInfo_CLI_${VER}_Lambda_x86_64.zip"
+          mkdir -p work/extract && unzip -q work/mediainfo.zip -d work/extract
+          BIN=$(find work/extract -name "mediainfo" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mediainfo && chmod +x work/pkg/mediainfo
+          tar -czf staging/mediainfo-linux-x86_64.tar.gz -C work/pkg mediainfo
+          rm -rf work/extract work/pkg work/mediainfo.zip
+          echo "✓ mediainfo-linux-x86_64.tar.gz"
+
+      - name: "MediaInfo: Linux aarch64"
+        if: needs.check-versions.outputs.mediainfo == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VER="${{ steps.mediainfo_meta.outputs.version }}"
+          echo "→ Downloading MediaInfo CLI Linux aarch64"
+          curl -fL --retry 3 -o work/mediainfo.zip \
+            "https://mediaarea.net/download/binary/mediainfo/${VER}/MediaInfo_CLI_${VER}_Lambda_arm64.zip"
+          mkdir -p work/extract && unzip -q work/mediainfo.zip -d work/extract
+          BIN=$(find work/extract -name "mediainfo" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mediainfo && chmod +x work/pkg/mediainfo
+          tar -czf staging/mediainfo-linux-aarch64.tar.gz -C work/pkg mediainfo
+          rm -rf work/extract work/pkg work/mediainfo.zip
+          echo "✓ mediainfo-linux-aarch64.tar.gz"
+
+      - name: "MediaInfo: Windows x86_64"
+        if: needs.check-versions.outputs.mediainfo == 'true'
+        run: |
+          set -euo pipefail
+          VER="${{ steps.mediainfo_meta.outputs.version }}"
+          echo "→ Downloading MediaInfo CLI Windows x86_64"
+          curl -fL --retry 3 -o work/mediainfo.zip \
+            "https://mediaarea.net/download/binary/mediainfo/${VER}/MediaInfo_CLI_${VER}_Windows_x64.zip"
+          mkdir -p work/extract && unzip -q work/mediainfo.zip -d work/extract
+          BIN=$(find work/extract -iname "MediaInfo.exe" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mediainfo.exe
+          (cd work/pkg && zip -q ../../staging/mediainfo-windows-x86_64.zip mediainfo.exe)
+          rm -rf work/extract work/pkg work/mediainfo.zip
+          echo "✓ mediainfo-windows-x86_64.zip"
+
+      - name: "MediaInfo: Windows ARM64"
+        if: needs.check-versions.outputs.mediainfo == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VER="${{ steps.mediainfo_meta.outputs.version }}"
+          echo "→ Downloading MediaInfo CLI Windows ARM64"
+          curl -fL --retry 3 -o work/mediainfo.zip \
+            "https://mediaarea.net/download/binary/mediainfo/${VER}/MediaInfo_CLI_${VER}_Windows_ARM64.zip"
+          mkdir -p work/extract && unzip -q work/mediainfo.zip -d work/extract
+          BIN=$(find work/extract -iname "MediaInfo.exe" -type f | head -1)
+          mkdir -p work/pkg && cp "$BIN" work/pkg/mediainfo.exe
+          (cd work/pkg && zip -q ../../staging/mediainfo-windows-aarch64.zip mediainfo.exe)
+          rm -rf work/extract work/pkg work/mediainfo.zip
+          echo "✓ mediainfo-windows-aarch64.zip"
+
+      - name: "MediaInfo: macOS (universal)"
+        if: needs.check-versions.outputs.mediainfo == 'true'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          VER="${{ steps.mediainfo_meta.outputs.version }}"
+          echo "→ Downloading MediaInfo CLI macOS"
+          curl -fL --retry 3 -o work/mediainfo.dmg \
+            "https://mediaarea.net/download/binary/mediainfo/${VER}/MediaInfo_CLI_${VER}_Mac.dmg"
+          # Extract from DMG using 7z (works on Linux CI runners)
+          mkdir -p work/extract
+          7z x work/mediainfo.dmg -owork/extract -y > /dev/null 2>&1
+          BIN=$(find work/extract -name "mediainfo" -type f | head -1)
+          if [ -n "$BIN" ]; then
+            mkdir -p work/pkg && cp "$BIN" work/pkg/mediainfo && chmod +x work/pkg/mediainfo
+            tar -czf staging/mediainfo-macos-aarch64.tar.gz -C work/pkg mediainfo
+            echo "✓ mediainfo-macos-aarch64.tar.gz"
+          else
+            echo "⚠ mediainfo binary not found in DMG"
+          fi
+          rm -rf work/extract work/pkg work/mediainfo.dmg
+
+      # =============================================================
       # get_iplayer
       # Source: get-iplayer/get_iplayer (Perl script)
       #         get-iplayer/get_iplayer_win32 (Windows installer)
       # =============================================================
 
       - name: "get_iplayer: Fetch latest release tags"
+        if: needs.check-versions.outputs.get_iplayer == 'true'
         id: getiplayer_meta
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -638,6 +983,7 @@ jobs:
           echo "→ get_iplayer: script=$SCRIPT_TAG, win=$WIN_TAG"
 
       - name: "get_iplayer: Perl script (Linux/macOS)"
+        if: needs.check-versions.outputs.get_iplayer == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -656,6 +1002,7 @@ jobs:
           echo "✓ get_iplayer Perl script (all Unix platforms)"
 
       - name: "get_iplayer: Windows x86_64 installer"
+        if: needs.check-versions.outputs.get_iplayer == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -672,23 +1019,27 @@ jobs:
       - name: List produced assets
         run: |
           echo "=== Binary tools produced ==="
-          ls -lh staging/
-          echo "Total: $(ls staging/ | wc -l) assets"
+          ls -lh staging/ 2>/dev/null || echo "No assets in staging"
+          echo "Total: $(ls staging/ 2>/dev/null | wc -l) assets"
 
       - uses: actions/upload-artifact@v7
         with:
           name: binary-tools
           path: staging/
           retention-days: 1
+          if-no-files-found: warn
 
   # =====================================================================
   # Job 2: Build Python tools via PyInstaller
   # Matrix across platforms: Linux x86_64, Linux aarch64, Windows, macOS
+  # On scheduled runs, only runs if any Python tool has a new version.
   # =====================================================================
   build-python-tools:
+    needs: [check-versions]
     if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'update-tools')
+      needs.check-versions.outputs.python_tools == 'true' &&
+      (github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'update-tools'))
     strategy:
       fail-fast: false
       matrix:
@@ -798,7 +1149,7 @@ jobs:
 
       # Bonus: build aria2c from brew on macOS (no official pre-built binary)
       - name: "aria2c: macOS (brew)"
-        if: matrix.platform == 'macos'
+        if: matrix.platform == 'macos' && needs.check-versions.outputs.aria2c == 'true'
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -836,28 +1187,53 @@ jobs:
   # Job 3: Upload all assets to GitHub Releases
   # Creates a date-stamped release (e.g. 2026-02-25) and updates the
   # "latest" tag to always point at the newest release.
+  #
+  # On scheduled runs with partial rebuilds, carries forward unchanged
+  # assets from the previous 'latest' release to ensure complete releases.
   # =====================================================================
   upload-release:
-    needs: [download-binaries, build-python-tools]
+    needs: [check-versions, download-binaries, build-python-tools]
     runs-on: ubuntu-latest
-    # Only upload on push/schedule/dispatch (not PRs)
+    # Only upload on push/schedule/dispatch (not PRs), and only if something changed
     if: >-
       always() &&
       github.event_name != 'pull_request' &&
+      needs.check-versions.outputs.any_changed == 'true' &&
+      (needs.download-binaries.result == 'success' || needs.download-binaries.result == 'skipped') &&
+      (needs.build-python-tools.result == 'success' || needs.build-python-tools.result == 'skipped') &&
       (needs.download-binaries.result == 'success' || needs.build-python-tools.result == 'success')
     steps:
       - uses: actions/checkout@v6
 
+      # On scheduled partial rebuilds, carry forward unchanged assets
+      - name: Carry forward assets from previous release
+        if: needs.check-versions.outputs.force != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p staging
+          echo "→ Downloading assets from previous 'latest' release"
+          gh release download latest \
+            --repo "${{ github.repository }}" \
+            --dir staging/ 2>/dev/null || {
+            echo "⚠ No previous 'latest' release found — new assets only"
+          }
+          echo "Carried forward $(ls staging/ 2>/dev/null | wc -l) assets"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v8
+        continue-on-error: true
         with:
           path: all-assets
 
-      - name: Flatten assets into staging
+      - name: Flatten new assets into staging
         run: |
           mkdir -p staging
+          # New artifacts overwrite carried-forward ones
           find all-assets -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.exe" \) \
-            -exec cp {} staging/ \;
+            -exec cp {} staging/ \; 2>/dev/null || true
+          # Remove the updated-versions artifact if it landed here
+          rm -f staging/versions-new.json
           echo "=== All assets ==="
           ls -lh staging/
           echo "Total: $(ls staging/ | wc -l) assets"
@@ -924,6 +1300,30 @@ jobs:
           Use \`/releases/download/latest/<asset>\` for URLs that always fetch the newest version."
 
           echo "✓ 'latest' tag updated to match $TAG"
+
+      - name: Update versions.json
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Download the updated versions file from the check-versions job
+          if [ -f all-assets/updated-versions/versions-new.json ]; then
+            cp all-assets/updated-versions/versions-new.json versions.json
+            echo "→ Updated versions.json from check-versions output"
+          else
+            echo "⚠ No updated versions file found — skipping versions.json update"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add versions.json
+          if git diff --cached --quiet; then
+            echo "→ versions.json unchanged"
+          else
+            git commit -m "ci: update versions.json [skip ci]"
+            git push
+            echo "✓ versions.json committed and pushed"
+          fi
 
       - name: Summary
         run: |

@@ -49,11 +49,13 @@ The binaries distributed via this repository's GitHub Releases are redistributed
 | **gamdl** | gamdl | No explicit license | [glomatico/gamdl](https://github.com/glomatico/gamdl) |
 | **AMdecrypt** | amdecrypt | No explicit license | [glomatico/amdecrypt](https://github.com/glomatico/amdecrypt) |
 | **Wrapper** | wrapper | No explicit license | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) |
+| **MediaInfo** | MediaInfo | BSD-2-Clause | [MediaArea/MediaInfo](https://github.com/MediaArea/MediaInfo) |
 
 ### License Compliance Notes
 
 - **GPL v2+ tools** (FFmpeg, mp4decrypt, aria2c): Source code is available at the upstream repositories linked above. These binaries are unmodified redistributions.
 - **LGPL v2.1 tools** (MP4Box, fpcalc): Dynamically linked where applicable. Source code available at upstream repositories.
+- **BSD-2-Clause tools** (MediaInfo): Very permissive; redistribution requires retaining the copyright notice and disclaimer.
 - **Unlicensed tools** (yt-dlp): Distributed under the Unlicense, placing the work in the public domain.
 - **No explicit license tools** (Votify, gytmdl, gamdl, AMdecrypt, Wrapper): These tools are publicly available on GitHub but do not include an explicit license. They are redistributed here in good faith for interoperability with MeedyaDL. If any upstream author objects to redistribution, the tool will be promptly removed.
 

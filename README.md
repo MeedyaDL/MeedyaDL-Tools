@@ -26,6 +26,7 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 | **gamdl** | Apple Music downloader | [glomatico/gamdl](https://github.com/glomatico/gamdl) | — |
 | **AMdecrypt** | Apple Music decryption bridge | [glomatico/amdecrypt](https://github.com/glomatico/amdecrypt) | — |
 | **Wrapper** | FairPlay DRM decryption server | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) | — |
+| **MediaInfo** | Media file metadata analysis | [MediaArea/MediaInfo](https://github.com/MediaArea/MediaInfo) | BSD-2-Clause |
 
 ## Platform Support
 
@@ -44,6 +45,7 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 | gamdl | Y | Y | — | Y | — | Y |
 | AMdecrypt | Y | Y | — | Y | Y | Y |
 | Wrapper | Y | — | — | — | — | — |
+| MediaInfo | Y | Y | — | Y | Y | Y |
 
 **Y** = pre-built binary &nbsp; **Y*** = Perl script (requires Perl runtime) &nbsp; **Y**** = Windows installer &nbsp; **—** = not available
 
@@ -55,7 +57,7 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 
 | Component | Values |
 | --------- | ------ |
-| `tool_id` | `ffmpeg`, `yt-dlp`, `mp4decrypt`, `mp4box`, `nm3u8dlre`, `aria2c`, `fpcalc`, `get_iplayer`, `votify`, `gytmdl`, `gamdl`, `amdecrypt`, `wrapper` |
+| `tool_id` | `ffmpeg`, `yt-dlp`, `mp4decrypt`, `mp4box`, `nm3u8dlre`, `aria2c`, `fpcalc`, `get_iplayer`, `votify`, `gytmdl`, `gamdl`, `amdecrypt`, `wrapper`, `mediainfo` |
 | `os` | `linux`, `windows`, `macos` |
 | `arch` | `x86_64`, `x86`, `aarch64`, `armhf` |
 | `ext` | `.tar.gz` (Linux/macOS), `.zip` (Windows), `.exe` (installers) |
@@ -71,10 +73,12 @@ Each build creates a **date-stamped release** (e.g. `2026-02-25`) containing all
 
 The **Populate Tools** workflow automatically:
 
-1. Downloads latest binaries from all upstream sources
-2. Builds Python tools (Votify, gytmdl, gamdl) via PyInstaller for each platform
-3. Repackages everything with standardized names
-4. Creates a date-stamped release and updates the `latest` tag
+1. **Checks upstream versions** against `versions.json` (on scheduled runs, only rebuilds tools with new versions)
+2. Downloads latest binaries from upstream sources
+3. Builds Python tools (Votify, gytmdl, gamdl) via PyInstaller for each platform
+4. Repackages everything with standardized names
+5. Creates a date-stamped release and updates the `latest` tag
+6. Commits updated `versions.json` back to the repository
 
 ### Triggers
 
@@ -83,7 +87,7 @@ The **Populate Tools** workflow automatically:
 | **Manual dispatch** | GitHub > Actions > Populate Tools > "Run workflow" | A specific tool was updated upstream |
 | **Push to main** | Automatic on every commit to main | Workflow/config changes |
 | **PR with label** | Add `update-tools` label to a PR | Testing workflow changes before merging |
-| **Monthly schedule** | Automatic on the 1st of each month at 06:00 UTC | Catches upstream updates automatically |
+| **Monthly schedule** | Automatic on the 1st of each month at 06:00 UTC | Catches upstream updates automatically (only rebuilds changed tools) |
 
 ### How to update when an upstream tool releases a new version
 

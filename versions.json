@@ -1,0 +1,17 @@
+{
+  "_comment": "Tracks last-packaged upstream versions. Updated automatically by CI after each successful release.",
+  "ffmpeg": "",
+  "yt-dlp": "",
+  "mp4decrypt": "",
+  "mp4box": "",
+  "nm3u8dlre": "",
+  "aria2c": "",
+  "fpcalc": "",
+  "get_iplayer": "",
+  "mediainfo": "",
+  "votify": "",
+  "gytmdl": "",
+  "gamdl": "",
+  "amdecrypt": "",
+  "wrapper": ""
+}
