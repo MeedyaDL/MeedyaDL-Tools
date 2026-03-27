@@ -33,7 +33,8 @@ build/
 npm-debug.log*
 
 # === AI ===
-.claude/
+.claude/*
+!.claude/CLAUDE.md
 .open/
 .chatgpt/
 .codex/

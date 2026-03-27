@@ -5,13 +5,13 @@ Current build status and tool availability for MeedyaDL-Tools.
 ## Build Status
 
 | Job | Status |
-|-----|--------|
+| --- | ------ |
 | Download Binaries | ![workflow](https://github.com/MeedyaDL/MeedyaDL-Tools/actions/workflows/populate.yml/badge.svg) |
 
 ## Tool-by-Platform Availability
 
 | Tool | linux-x86_64 | linux-aarch64 | linux-x86 | linux-armhf | win-x86_64 | win-aarch64 | macos-aarch64 |
-|------|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| ---- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | FFmpeg | OK | OK | — | — | OK | — | OK |
 | yt-dlp | OK | OK | — | — | OK | OK | OK |
 | mp4decrypt | OK | — | — | — | OK | — | OK |
@@ -28,6 +28,7 @@ Current build status and tool availability for MeedyaDL-Tools.
 | MediaInfo | OK | OK | — | — | OK | OK | OK |
 
 **Legend:**
+
 - **OK** = Pre-built binary downloaded from upstream
 - **OK*** = Compiled from source in CI
 - **OK**** = Installed via Homebrew in CI
@@ -40,16 +41,16 @@ Current build status and tool availability for MeedyaDL-Tools.
 ### Platform Gaps
 
 | Platform | Issue | Impact |
-|----------|-------|--------|
+| -------- | ----- | ------ |
 | **Linux x86 (32-bit)** | Most upstream projects have dropped 32-bit support | Only AMdecrypt provides 32-bit Linux builds |
-| **Windows ARM64** | Very few tools provide native ARM64 builds | Only yt-dlp, N_m3u8DL-RE, and AMdecrypt available |
+| **Windows ARM64** | Very few tools provide native ARM64 builds | Only yt-dlp, N_m3u8DL-RE, AMdecrypt, and MediaInfo available |
 | **Linux armhf** | Raspberry Pi 3 (32-bit ARM) has minimal support | Only get_iplayer (Perl script) available |
 | **Wrapper** | Only supports Linux x86_64 | C/C++ project with no cross-platform releases |
 
 ### Build Notes
 
 | Tool | Notes |
-|------|-------|
+| ---- | ----- |
 | **aria2c (Linux)** | Compiled from source; linked against system OpenSSL |
 | **aria2c (macOS)** | Installed via Homebrew; dynamically linked |
 | **Python tools** | Built with PyInstaller `--onefile`; may have hidden import issues |
@@ -60,12 +61,17 @@ Current build status and tool availability for MeedyaDL-Tools.
 
 ## Version Tracking
 
-Tool versions are tracked in [`versions.json`](versions.json). On scheduled runs, the workflow compares upstream versions against this file and only rebuilds tools with new releases. On push and manual dispatch, all tools are rebuilt. Check the [latest release](https://github.com/MeedyaDL/MeedyaDL-Tools/releases/tag/latest) for current versions.
+Tool versions are tracked in [`versions.json`](versions.json).
+On scheduled runs, the workflow compares upstream versions against this file
+and only rebuilds tools with new releases. On push and manual dispatch, all
+tools are rebuilt. Check the
+[latest release](https://github.com/MeedyaDL/MeedyaDL-Tools/releases/tag/latest)
+for current versions.
 
 ## Upstream Repositories
 
 | Tool | Repository | Release Strategy |
-|------|-----------|-----------------|
+| ---- | ---------- | ---------------- |
 | FFmpeg | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) | Rolling `latest` tag |
 | yt-dlp | [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) | Semver releases |
 | mp4decrypt | [Bento4 SDK](https://www.bok.net/Bento4/) | Fixed version (pinned) |

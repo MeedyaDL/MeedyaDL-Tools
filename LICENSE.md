@@ -4,7 +4,7 @@
 
 The automation code, workflows, and documentation in this repository are licensed under the MIT License.
 
-```
+```text
 MIT License
 
 Copyright (c) 2024-2026 MeedyaDL
@@ -35,7 +35,7 @@ SOFTWARE.
 The binaries distributed via this repository's GitHub Releases are redistributed under their respective upstream licenses. **This repository does not modify any of these tools** — it only provides packaging automation and standardized naming.
 
 | Tool | Upstream Project | License | Source |
-|------|-----------------|---------|--------|
+| ---- | --------------- | ------- | ------ |
 | **FFmpeg** | FFmpeg | GPL v2+ / LGPL v2.1+ | [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) |
 | **yt-dlp** | yt-dlp | Unlicense | [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) |
 | **mp4decrypt** | Bento4 | GPL v2 | [axiomatic-systems/Bento4](https://github.com/axiomatic-systems/Bento4) |
@@ -62,6 +62,7 @@ The binaries distributed via this repository's GitHub Releases are redistributed
 ### Your Obligations
 
 If you redistribute MeedyaDL or any of the bundled tools:
+
 - You must comply with each tool's respective license
 - For GPL/LGPL tools, you must make the corresponding source code available or provide a written offer to do so
 - The upstream source links in the table above satisfy this requirement for unmodified binaries
