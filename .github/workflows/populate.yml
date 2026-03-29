@@ -983,18 +983,33 @@ jobs:
           echo "→ Downloading MediaInfo CLI macOS"
           curl -fL --retry 3 -o work/mediainfo.dmg \
             "https://mediaarea.net/download/binary/mediainfo/${VER}/MediaInfo_CLI_${VER}_Mac.dmg"
-          # Extract from DMG using 7z (works on Linux CI runners)
+          # DMGs on Linux need recursive extraction: DMG → HFS → files
+          mkdir -p work/dmg_outer
+          7z x work/mediainfo.dmg -owork/dmg_outer -y > /dev/null 2>&1
+          # Look for inner HFS image or pkg and extract recursively
           mkdir -p work/extract
-          7z x work/mediainfo.dmg -owork/extract -y > /dev/null 2>&1
-          BIN=$(find work/extract -name "mediainfo" -type f | head -1)
+          find work/dmg_outer -type f \( -name "*.hfs" -o -name "*.pkg" -o -name "*.iso" \) | while read img; do
+            7z x "$img" -owork/extract -y > /dev/null 2>&1 || true
+          done
+          # Also try direct extraction from any file 7z can handle
+          if [ "$(find work/extract -name 'mediainfo' -type f | wc -l)" -eq 0 ]; then
+            find work/dmg_outer -type f -size +100k | while read f; do
+              7z x "$f" -owork/extract -y > /dev/null 2>&1 || true
+            done
+          fi
+          echo "→ Extracted contents:"
+          find work/extract -type f -name "mediainfo*" 2>/dev/null || true
+          find work/dmg_outer -type f -name "mediainfo*" 2>/dev/null || true
+          BIN=$(find work/extract work/dmg_outer -name "mediainfo" -type f 2>/dev/null | head -1)
           if [ -n "$BIN" ]; then
             mkdir -p work/pkg && cp "$BIN" work/pkg/mediainfo && chmod +x work/pkg/mediainfo
             tar -czf staging/mediainfo-macos-aarch64.tar.gz -C work/pkg mediainfo
             echo "✓ mediainfo-macos-aarch64.tar.gz"
           else
-            echo "⚠ mediainfo binary not found in DMG"
+            echo "⚠ mediainfo binary not found in DMG — listing all extracted files:"
+            find work/dmg_outer work/extract -type f 2>/dev/null | head -50
           fi
-          rm -rf work/extract work/pkg work/mediainfo.dmg
+          rm -rf work/extract work/dmg_outer work/pkg work/mediainfo.dmg
 
       # =============================================================
       # MKVToolNix
@@ -1075,22 +1090,35 @@ jobs:
           echo "→ Downloading MKVToolNix macOS DMG"
           curl -fL --retry 3 -o work/mkvtoolnix.dmg \
             "https://mkvtoolnix.download/macos/MKVToolNix-${VER}.dmg"
+          # DMGs on Linux need recursive extraction: DMG → HFS → app bundle
+          mkdir -p work/dmg_outer
+          7z x work/mkvtoolnix.dmg -owork/dmg_outer -y > /dev/null 2>&1
           mkdir -p work/extract
-          7z x work/mkvtoolnix.dmg -owork/extract -y > /dev/null 2>&1
+          find work/dmg_outer -type f \( -name "*.hfs" -o -name "*.pkg" -o -name "*.iso" \) | while read img; do
+            7z x "$img" -owork/extract -y > /dev/null 2>&1 || true
+          done
+          if [ "$(find work/extract -name 'mkvmerge' -type f | wc -l)" -eq 0 ]; then
+            find work/dmg_outer -type f -size +100k | while read f; do
+              7z x "$f" -owork/extract -y > /dev/null 2>&1 || true
+            done
+          fi
+          echo "→ Searching for MKVToolNix binaries..."
+          find work/extract work/dmg_outer -type f -name "mkv*" 2>/dev/null || true
           mkdir -p work/pkg
           for bin in mkvmerge mkvextract mkvpropedit mkvinfo; do
-            BIN_PATH=$(find work/extract -name "$bin" -type f | head -1)
+            BIN_PATH=$(find work/extract work/dmg_outer -name "$bin" -type f 2>/dev/null | head -1)
             if [ -n "$BIN_PATH" ]; then
               cp "$BIN_PATH" "work/pkg/$bin" && chmod +x "work/pkg/$bin"
             fi
           done
-          if [ "$(ls work/pkg/ | wc -l)" -gt 0 ]; then
+          if [ "$(ls work/pkg/ 2>/dev/null | wc -l)" -gt 0 ]; then
             tar -czf staging/mkvtoolnix-macos-aarch64.tar.gz -C work/pkg .
             echo "✓ mkvtoolnix-macos-aarch64.tar.gz"
           else
-            echo "⚠ No MKVToolNix binaries found in DMG"
+            echo "⚠ No MKVToolNix binaries found in DMG — listing all extracted files:"
+            find work/dmg_outer work/extract -type f 2>/dev/null | head -50
           fi
-          rm -rf work/extract work/pkg work/mkvtoolnix.dmg
+          rm -rf work/extract work/dmg_outer work/pkg work/mkvtoolnix.dmg
 
       # =============================================================
       # get_iplayer
