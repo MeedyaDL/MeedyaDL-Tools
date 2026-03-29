@@ -10,13 +10,13 @@ Mirror repository for external tool binaries used by [MeedyaDL](https://github.c
 - `populate.yml` is the core file (~1340 lines) — 4-job workflow:
   1. **check-versions** — compares upstream versions against `versions.json`; on schedule only rebuilds changed tools; on push/dispatch forces full rebuild
   2. **download-binaries** — downloads pre-built tools from upstream (per-tool `if:` conditions skip unchanged tools)
-  3. **build-python-tools** — builds Votify/gytmdl/gamdl via PyInstaller across 4 platform matrix runners
+  3. **build-python-tools** — builds Votify/gytmdl/gamdl/OF-Scraper via PyInstaller across 4 platform matrix runners
   4. **upload-release** — carries forward unchanged assets from previous release, creates date-stamped release + updates `latest` tag, auto-commits `versions.json`
 - `versions.json` tracks last-packaged upstream versions (auto-committed by CI with `[skip ci]`)
 
-## Tools Mirrored (14)
+## Tools Mirrored (15)
 
-FFmpeg, yt-dlp, mp4decrypt, MP4Box, N_m3u8DL-RE, aria2c, fpcalc, get_iplayer, Votify, gytmdl, gamdl, AMdecrypt, Wrapper, MediaInfo
+FFmpeg, yt-dlp, mp4decrypt, MP4Box, N_m3u8DL-RE, aria2c, fpcalc, get_iplayer, Votify, gytmdl, gamdl, AMdecrypt, Wrapper, MediaInfo, OF-Scraper
 
 ## Asset Naming
 

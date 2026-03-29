@@ -26,6 +26,7 @@ Current build status and tool availability for MeedyaDL-Tools.
 | AMdecrypt | OK | OK | OK | — | OK | OK | OK |
 | Wrapper | OK | — | — | — | — | — | — |
 | MediaInfo | OK | OK | — | — | OK | OK | OK |
+| OF-Scraper | OK | OK | — | — | OK | — | OK |
 
 **Legend:**
 
@@ -53,7 +54,7 @@ Current build status and tool availability for MeedyaDL-Tools.
 | ---- | ----- |
 | **aria2c (Linux)** | Compiled from source; linked against system OpenSSL |
 | **aria2c (macOS)** | Installed via Homebrew; dynamically linked |
-| **Python tools** | Built with PyInstaller `--onefile`; may have hidden import issues |
+| **Python tools** | Built with PyInstaller `--onefile`; includes Votify, gytmdl, gamdl, OF-Scraper |
 | **get_iplayer** | Perl script on Unix (requires `perl`); Windows installer bundles Perl |
 | **FFmpeg (macOS)** | evermeet.cx provides x86_64 binary; runs via Rosetta 2 on Apple Silicon |
 | **MP4Box** | Extracted from platform-specific installers (.deb, .exe, .pkg) |
@@ -86,3 +87,4 @@ for current versions.
 | AMdecrypt | [glomatico/amdecrypt](https://github.com/glomatico/amdecrypt) | GoReleaser |
 | Wrapper | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) | Commit-hash tags |
 | MediaInfo | [MediaArea/MediaInfo](https://github.com/MediaArea/MediaInfo) | Semver releases (binaries on mediaarea.net) |
+| OF-Scraper | [datawhores/OF-Scraper](https://github.com/datawhores/OF-Scraper) | PyPI releases |

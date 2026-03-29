@@ -27,6 +27,7 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 | **AMdecrypt** | Apple Music decryption bridge | [glomatico/amdecrypt](https://github.com/glomatico/amdecrypt) | — |
 | **Wrapper** | FairPlay DRM decryption server | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) | — |
 | **MediaInfo** | Media file metadata analysis | [MediaArea/MediaInfo](https://github.com/MediaArea/MediaInfo) | BSD-2-Clause |
+| **OF-Scraper** | OnlyFans content downloader | [datawhores/OF-Scraper](https://github.com/datawhores/OF-Scraper) | MIT |
 
 ## Platform Support
 
@@ -46,6 +47,7 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 | AMdecrypt | Y | Y | — | Y | Y | Y |
 | Wrapper | Y | — | — | — | — | — |
 | MediaInfo | Y | Y | — | Y | Y | Y |
+| OF-Scraper | Y | Y | — | Y | — | Y |
 
 **Y** = pre-built binary &nbsp; **Y*** = Perl script (requires Perl runtime) &nbsp; **Y**** = Windows installer &nbsp; **—** = not available
 
@@ -57,7 +59,7 @@ This repository serves as a **mirror** for external tool binaries that MeedyaDL 
 
 | Component | Values |
 | --------- | ------ |
-| `tool_id` | `ffmpeg`, `yt-dlp`, `mp4decrypt`, `mp4box`, `nm3u8dlre`, `aria2c`, `fpcalc`, `get_iplayer`, `votify`, `gytmdl`, `gamdl`, `amdecrypt`, `wrapper`, `mediainfo` |
+| `tool_id` | `ffmpeg`, `yt-dlp`, `mp4decrypt`, `mp4box`, `nm3u8dlre`, `aria2c`, `fpcalc`, `get_iplayer`, `votify`, `gytmdl`, `gamdl`, `amdecrypt`, `wrapper`, `mediainfo`, `ofscraper` |
 | `os` | `linux`, `windows`, `macos` |
 | `arch` | `x86_64`, `x86`, `aarch64`, `armhf` |
 | `ext` | `.tar.gz` (Linux/macOS), `.zip` (Windows), `.exe` (installers) |
@@ -75,7 +77,7 @@ The **Populate Tools** workflow automatically:
 
 1. **Checks upstream versions** against `versions.json` (on scheduled runs, only rebuilds tools with new versions)
 2. Downloads latest binaries from upstream sources
-3. Builds Python tools (Votify, gytmdl, gamdl) via PyInstaller for each platform
+3. Builds Python tools (Votify, gytmdl, gamdl, OF-Scraper) via PyInstaller for each platform
 4. Repackages everything with standardized names
 5. Creates a date-stamped release and updates the `latest` tag
 6. Commits updated `versions.json` back to the repository

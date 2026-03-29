@@ -50,6 +50,7 @@ The binaries distributed via this repository's GitHub Releases are redistributed
 | **AMdecrypt** | amdecrypt | No explicit license | [glomatico/amdecrypt](https://github.com/glomatico/amdecrypt) |
 | **Wrapper** | wrapper | No explicit license | [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper) |
 | **MediaInfo** | MediaInfo | BSD-2-Clause | [MediaArea/MediaInfo](https://github.com/MediaArea/MediaInfo) |
+| **OF-Scraper** | OF-Scraper | MIT | [datawhores/OF-Scraper](https://github.com/datawhores/OF-Scraper) |
 
 ### License Compliance Notes
 
