@@ -1,5 +1,5 @@
 {
-  "ffmpeg": "2026-05-10T15:14:23Z",
+  "ffmpeg": "2026-05-12T15:11:09Z",
   "yt-dlp": "2026.03.17",
   "mp4decrypt": "1-6-0-641",
   "mp4box": "",
@@ -7,7 +7,7 @@
   "aria2c": "release-1.37.0",
   "fpcalc": "v1.6.0",
   "get_iplayer": "v3.36",
-  "mediainfo": "v26.01",
+  "mediainfo": "v26.05",
   "amdecrypt": "0.0.1",
   "wrapper": "wrapper.x86_64.latest",
   "votify": "1.9.9",
